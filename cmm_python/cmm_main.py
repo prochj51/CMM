@@ -16,7 +16,8 @@ class Thread(QThread):
     def run(self):
         video_capture = imageHandler.camera_setup()                      
         while True:
-            orig_img = imageHandler.next_frame2(video_capture)
+            orig_img = cv2.cvtColor(imageHandler.next_frame2(video_capture), cv2.COLOR_BGR2RGB)
+
             if True:
                 # https://stackoverflow.com/a/55468544/6622587
                 #rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -29,6 +30,12 @@ class Thread(QThread):
                     key = 255
                 imageHandler.check_layers(orig_img)
                 final_pic = imageHandler.updateImage(orig_img)
+
+
+                # mask = imageHandler.plate_mask(final_pic)
+                # gray = cv2.cvtColor(cv2.bitwise_and(mask, final_pic), cv2.COLOR_BGR2GRAY)
+                # final_pic /= 2
+                # final_pic[cv2.bitwise_not(mask) == 255] /= 2
                 common.draw_fps(final_pic)
                 h, w, ch = final_pic.shape
                 #print(rgbImage.shape)
@@ -43,6 +50,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
         self.initUI()
+        self.eventFlag = 0
     
     @pyqtSlot(QImage)
     def setImage(self, image):
@@ -63,11 +71,14 @@ class MainWindow(QtWidgets.QMainWindow):
         th.changePixmap.connect(self.setImage)
         th.start()
         self.show()    
+
     def eventFilter(self, source, event):
         t = event.type()
         if t == QtCore.QEvent.MouseMove or t== QtCore.QEvent.MouseButtonPress or t== QtCore.QEvent.MouseButtonRelease :
-            #self.drawCircle(event.x(), event.y())
-            imageHandler.click_and_crop_qt(event,event.x(), event.y())
+            if imageHandler.eventFlag == 0:
+                imageHandler.click_and_crop_qt(event,event.x(), event.y())
+            else:
+                imageHandler.object_drawing_qt(event,event.x(), event.y())
         return super(MainWindow, self).eventFilter(source, event)
 
     def keyPressEvent(self, event):
@@ -77,9 +88,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def switch(self):
         self.ui.stackedWidget.setCurrentIndex(1) 
-
-    def drawCircle(self,x,y):
-        print(x,y)    
 
 import sys
 
