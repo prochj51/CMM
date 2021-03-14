@@ -1,0 +1,124 @@
+
+o<circumferenceprobe> sub
+G21 
+F200
+
+#<xmin> = #<_ini[JOINT_0]MIN_LIMIT>
+#<ymin> = #<_ini[JOINT_1]MIN_LIMIT>
+#<xmax> = #<_ini[JOINT_0]MAX_LIMIT>
+#<ymax> = #<_ini[JOINT_1]MAX_LIMIT>
+#<cntmax> = 600
+#<cnt> = 0
+#<incr> = 3
+#<state> = 0 ; 0 1 2 3
+
+#<retractoff> = 1 
+#<dir> = -1 ;-1 = from left, +1 = from right 
+o10 if [#<dir> eq 1]
+        G38.2 x#<xmin> ;error on fail
+        G38.5 x#<xmax>
+
+o10 elseif [#<dir> eq -1]
+        G38.2 x#<xmax> ;error on fail
+        G38.5 x#<xmin>
+    
+o10 endif 
+
+
+O1 while [#<cnt> lt #<cntmax>]
+    o100 if [#<state> lt 0]
+        #<state> = 3
+    o100 elseif [#<state> gt 3]
+        #<state> = 0    
+    o100 endif    
+
+    o102 if [#<state> EQ 0]
+        ;probe
+        G38.3 x[#<_x> - #<dir>*2*#<incr>] 
+        o103 if [#5070 eq 0]
+        #<state> = [#<state> - #<dir>]
+        (debug,state: #<state>)
+        o103 else
+            ;retract probe
+            G38.5 x[#<_x> + #<dir>*5*#<incr>] ;5 can cause problems, watch out 
+            G0 x[#<_x> + #<dir>*#<retractoff>]
+
+            ;move
+            G38.3 y[#<_y> + #<incr>] 
+            o105 if [#5070 eq 1]
+            #<state> = [#<state> + #<dir>]
+            ;retract move
+            G38.5 y#<ymin>
+            G0 y[#<_y> - #<retractoff>]
+            o105 endif
+        o103 endif    
+
+    o102 elseif [#<state> EQ 1]
+        G38.3 y[#<_y> + #<dir>*2*#<incr>]
+        o106 if [#5070 eq 0]
+        #<state> = [#<state> - #<dir>]
+        (debug,state: #<state>)
+        o106 else
+            ;retract
+            G38.5 y[#<_y> - #<dir>*5*#<incr>]
+            G0 y[#<_y> - #<dir>*#<retractoff>]
+            
+            ;move
+            G38.3 x[#<_x> + #<incr>] 
+            o108 if [#5070 eq 1]
+            #<state> = [#<state> + #<dir>]
+            ;retract
+            G38.5 x#<xmin>
+            G0 x[#<_x> - #<retractoff>]
+            o108 endif
+        o106 endif    
+
+    o102 elseif [#<state> EQ 2]
+        G38.3 x[#<_x> + #<dir>*2*#<incr>]  ;error on fail
+        o109 if [#5070 eq 0]
+        #<state> = [#<state> - #<dir>]
+        (debug,state: #<state>)
+        o109 else
+            ;retract
+            G38.5 x[#<_x> - #<dir>*5*#<incr>]
+            G0 x[#<_x> - #<dir>*#<retractoff>]
+
+            ;move
+            G38.3 y[#<_y> - #<incr>] ; G38.3  probe toward workpiece, stop on contact
+            
+            o111 if [#5070 eq 1]
+            #<state> = [#<state> + #<dir>]
+            ;retract move
+            G38.5 y#<ymax>
+            G0 y[#<_y> + #<retractoff>]
+            o111 endif
+        o109 endif
+    o102 else 
+
+        G38.3 y[#<_y> - #<dir>*2*#<incr>] 
+        o113 if [#5070 eq 0]
+        #<state> = [#<state> - #<dir>]
+        (debug,state: #<state>)
+        o113 else
+        ;retract
+            G38.5 y[#<_y> + #<dir>*5*#<incr>]
+            G0 y[#<_y> + #<dir>*#<retractoff>]
+            
+            ;move
+            G38.3 x[#<_x> - #<incr>] ; G38.3  probe toward workpiece, stop on contact
+            
+            o114 if [#5070 eq 1]
+            #<state> = [#<state> + #<dir>]
+            ;retract
+            G38.5 x#<xmax>
+            G0 x[#<_x> + #<retractoff>]
+            o114 endif
+        o113 endif
+    o102 endif
+      
+    #<cnt>=[#<cnt>+1]
+
+O1 endwhile
+
+o<circumferenceprobe> endsub
+M2

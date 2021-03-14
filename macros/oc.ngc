@@ -1,0 +1,11 @@
+#1 = -5
+o<oc> sub
+(P is required since it's uppercase in the argspec)
+(debug, First param =#1)
+(the q argspec is optional since its lowercase in the argspec. Use as follows:)
+o100 if [#2 eq 0]
+    #3 = COS[90]
+    (debug, Second param =#3)
+o100 endif
+o<oc> endsub
+M2

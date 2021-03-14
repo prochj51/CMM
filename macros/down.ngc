@@ -1,0 +1,17 @@
+o<down> sub
+	 
+#<z>=#<_z> (save current Z position)
+G90
+F #<_ini[TOOLSENSOR]RAPID_SPEED>
+G38.2 Z[#<_ini[JOINT_2]MIN_LIMIT>]
+G91
+G1 Z[#<_ini[TOOLSENSOR]CLEARANCE>] F#<_ini[TOOLSENSOR]RAPID_SPEED> 
+F #<_ini[TOOLSENSOR]RAPID_SPEED>
+;G4 P0.5 
+;G38.2 Z[-#<_hal[probe.ps_probe_latch]>*2]
+G90
+(back to start point)
+G1 Z#<z> F#<_ini[TOOLSENSOR]RAPID_SPEED> 
+	
+o<down> endsub
+M2

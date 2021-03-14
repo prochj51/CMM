@@ -1,0 +1,70 @@
+( Rectangular Probing                                                   )
+(                                                                       )
+( This program repeatedly probes in a regular XY grid and writes the    )
+( probed location to the file 'probe-results.ngc' in the same directory )
+( as the .ini file                                                      )
+( increment x count = probe area                                        )
+
+(Configuration section)
+o<smartprobe> sub
+G21    (mm)
+F400    (probe speed)
+
+;#<xmin>=0  (X start) #1
+;#<xmax>=0  (X end)   #2
+;#<ymin>=0  (Y start) #3
+;#<ymax>=0  (Y end)   #4
+
+
+; #1 = 10
+; #2 = 50
+; #3 = 10
+; #4 = 50
+
+
+#<incrementx>= 2 (X increment)
+#<incrementy>=2 (Y increment)
+#<xcount> = [fix[[#2-#1]/#<incrementx>]+1]
+#<ycount> = [fix[[#4-#3]/#<incrementy>]+1]
+(debug,xcount #<xcount>)
+(debug,ycount #<ycount>)
+#7=0 (Z safety)
+#8=-50 (Z probe)
+(End configuration section)
+
+(LOGOPEN,probe-results.ngc)
+#9=0 #10=0
+G0Z#7
+O1 while [#9 lt #<ycount>]
+    #10=0
+    G0 Y[#3+#<incrementy>*#9]
+    O2 while [#10 lt #<xcount>]
+        O3 if [[#9/2] - fix[#9/2] eq 0]
+            #11=[#1+#<incrementx>*#10]
+        O3 else      
+            #11=[#1+#<incrementx>*[#<xcount>-#10-1]] ;zmeneno here
+        O3 endif
+        (#11 is X target)
+        #5070=1  ;G38 probe result: 1 if success, 0 if probe failed to close. Used with G38.3 and G38.5. Volatile.
+        O4 while [#5070 NE 0]
+            G38.5 z#7 ;G38.5 probe away from workpiece, stop on loss of contact 
+            G38.3 x#11 ; G38.3  probe toward workpiece, stop on contact
+        O4 endwhile
+
+        G38.2Z#8 ; G38.2 - probe toward workpiece, stop on contact, signal error if failure
+        (debug,G1 X#5061 Y#5062 Z#5063)
+
+        G38.5 z#7 ;G38.5 probe away from workpiece, stop on loss of contact 
+        (debug,G1 X#5061 Y#5062 Z#5063)
+        #10=[#10+1]
+    O2 endwhile
+    G0Z#7
+    #9=[#9+1]
+O1 endwhile
+
+(LOGCLOSE)
+G0Z#7
+G0X#1Y#3
+
+o<smartprobe> endsub
+M2

@@ -1,0 +1,14 @@
+o<yplus> sub	
+G90
+#<y>=#<_y> (save start X position) 
+F#<_ini[TOOLSENSOR]RAPID_SPEED>
+G38.2 Y[#<_ini[JOINT_1]MAX_LIMIT>-1]
+F#<_ini[TOOLSENSOR]LATCH_SPEED>
+G4 P0.5
+G38.5 Y[#<_ini[JOINT_1]MIN_LIMIT>+1]
+(debug, probe Y=#5062 )
+G91
+G1 Y[-#<_ini[TOOLSENSOR]CLEARANCE>] F#<_ini[TOOLSENSOR]RAPID_SPEED> 
+G90	
+o<yplus> endsub
+M2

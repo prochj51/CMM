@@ -1,0 +1,99 @@
+
+
+o<innerspaceclosed> sub
+
+
+G21 
+F200
+
+#<xstart> = 50
+#<ystart> = 50
+
+G0 X#<xstart> Y#<ystart>
+
+
+#<xmin> = 0
+#<ymin> = 0
+#<xmax> = 100
+#<ymax> = 100
+#<cntmax> = 50
+#<cnt> = 0
+#<incr> = 2
+#<state> = 0 ; 0 1 2 3
+
+#<retractoff> = 1 
+#<dir> = 1
+ 
+
+
+O1 while [#<cnt> lt #<cntmax>]
+      
+
+    o102 if [#<state> EQ 0]
+
+        G38.2 x#<xmin> ;error on fail
+        ;retract
+        G38.5 x#<xmax>
+        G0 x[#<_x> + #<retractoff>]
+        G38.3 y[#<_y> + #<incr>] ; G38.3  probe toward workpiece, stop on contact
+        o105 if [#5070 eq 1]
+        #<state> = 1
+        ;retract
+        G38.5 y#<ymin>
+        G0 y[#<_y> - #<retractoff>]
+        o105 endif
+
+    o102 elseif [#<state> EQ 1]
+        G38.2 y#<ymax> ;error on fail
+        ;retract
+        G38.5 y#<ymin>
+        G0 y[#<_y> - #<retractoff>]
+        G38.3 x[#<_x> + #<incr>] ; G38.3  probe toward workpiece, stop on contact
+        o108 if [#5070 eq 1]
+        #<state> = 2
+        ;retract
+        G38.5 x#<xmin>
+        G0 x[#<_x> - #<retractoff>]
+        o108 endif
+
+    o102 elseif [#<state> EQ 2]
+        G38.2 x#<xmax> ;error on fail
+        ;retract
+        G38.5 x#<xmin>
+        G0 x[#<_x> - #<retractoff>]
+        G38.3 y[#<_y> - #<incr>] ; G38.3  probe toward workpiece, stop on contact
+        
+        o111 if [#5070 eq 1]
+        #<state> = 3
+        ;retract
+        G38.5 y#<ymax>
+        G0 y[#<_y> + #<retractoff>]
+        o111 endif
+
+    o102 else 
+        #<probedir> = #<ymin>
+        #<retractprobe> = #<ymax>
+        #<movedir> = #<xmin>
+        #<retractmove> = #<xmax>
+
+        G38.2 y#<ymin> ;error on fail
+        ;retract
+        G38.5 y#<ymax>
+        G0 y[#<_y> + #<retractoff>]
+        G38.3 x[#<_x> - #<incr>] ; G38.3  probe toward workpiece, stop on contact
+        
+        o114 if [#5070 eq 1]
+        #<state> = 0
+        ;retract
+        G38.5 x#<xmax>
+        G0 x[#<_x> + #<retractoff>]
+        o114 endif
+    
+    o102 endif
+      
+    #<cnt>=[#<cnt>+1]
+
+O1 endwhile
+
+o<innerspaceclosed> endsub
+M2

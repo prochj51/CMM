@@ -1,0 +1,35 @@
+;#1 xmin
+;#2 xmax
+o<probeline> sub
+(LOGAPPEND,proberesults.txt)
+F400
+#<indx>=0
+#<incrementx> = 2
+#<zsafety> = 0
+#<zdown> = -50
+#<count> = [fix[[#2-#1]/#<incrementx>]+1]
+;#<count> = 3
+;#<count> =[#<count>+1]
+#9 = 0
+G0Z#<zsafety>
+O2 while [#<indx> lt #<count>]
+        O3 if [[#9/2] - fix[#9/2] eq 0]
+            #11=[#1+#<incrementx>*#<indx>]
+        O3 else      
+            #11=[#1+#<incrementx>*[#<count>-#<indx>-1]]
+        O3 endif
+        (#11 is X target)
+        #5070=1  ;G38 probe result: 1 if success, 0 if probe failed to close. Used with G38.3 and G38.5. Volatile.
+        O4 while [#5070 NE 0]
+            G38.5 z#<zsafety> ;G38.5 probe away from workpiece, stop on loss of contact 
+            G38.3 x#11 ; G38.3  probe toward workpiece, stop on contact
+        O4 endwhile
+
+        G38.2Z#<zdown> ; G38.2 - probe toward workpiece, stop on contact, signal error if failure
+        (LOG,G1 X#5061 Y#5062 Z#5063)
+        #<indx>=[#<indx>+1]
+    O2 endwhile
+
+(LOGCLOSE)
+o<probeline> endsub
+M2

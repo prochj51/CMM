@@ -1,0 +1,16 @@
+
+o<testcall> sub
+#1 = 5
+o100 if [#1 eq 5]
+
+(debug, first)
+o102 if [#1 eq 5]
+
+(debug, second)
+o100 endif
+(debug, fourth)
+o102 endif
+(debug, third)
+o100 endif
+o<testcall> endsub
+M2

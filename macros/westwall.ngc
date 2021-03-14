@@ -1,0 +1,38 @@
+o<westwall> sub
+#<xmin> = 0
+#<ymin> = 0
+#<xmax> = 100
+#<ymax> = 100
+
+#<xstart> = 50
+#<ystart> = 50
+#<cntmax> = 50
+#<cnt> = 0
+#<incr> = 2
+
+G21 
+F200
+
+G0 X#<xstart> Y#<ystart>
+
+G38.2 y#<ymin> ; G38.2  probe toward workpiece, stop on contact, error on fail
+
+
+G38.5 y#<ymax>
+#<yini> = #<_y>
+
+O1 while [#<cnt> lt #<cntmax>]
+    #11 = [#<yini> + #<cnt>*#<incr>]      
+    #5070=1  ;G38 probe result: 1 if success, 0 if probe failed to close. Used with G38.3 and G38.5. Volatile.
+    O4 while [#5070 NE 0]
+        G38.5 x#<xmax> ;G38.5 probe away from workpiece, stop on loss of contact 
+        G38.3 y#11 ; G38.3  probe toward workpiece, stop on contact
+    O4 endwhile
+
+    G38.2 x#<xmin> ; G38.2  probe toward workpiece, stop on contact, error on fail
+    #<cnt>=[#<cnt>+1]
+
+O1 endwhile
+
+o<westwall> endsub
+M2
