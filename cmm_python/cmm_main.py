@@ -65,8 +65,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.label.resize(640, 480)
         self.label.setMouseTracking(True)
         self.label.installEventFilter(self)
-        btn = self.ui.pushButton
-        btn.clicked.connect(self.switch)
+        self.initStackLogic()
+        self.selectedPoints = []
         th = Thread(self)
         th.changePixmap.connect(self.setImage)
         th.start()
@@ -77,8 +77,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if t == QtCore.QEvent.MouseMove or t== QtCore.QEvent.MouseButtonPress or t== QtCore.QEvent.MouseButtonRelease :
             if imageHandler.eventFlag == 0:
                 imageHandler.click_and_crop_qt(event,event.x(), event.y())
-            else:
+            elif imageHandler.eventFlag == 1:
                 imageHandler.object_drawing_qt(event,event.x(), event.y())
+            elif imageHandler.eventFlag == 2 :
+                imageHandler.click(event,event.x(), event.y())
+        
+        
         return super(MainWindow, self).eventFilter(source, event)
 
     def keyPressEvent(self, event):
@@ -86,9 +90,14 @@ class MainWindow(QtWidgets.QMainWindow):
         key = event.key()
         event.accept()
 
-    def switch(self):
-        self.ui.stackedWidget.setCurrentIndex(1) 
+    def initStackLogic(self):
+        self.ui.stackedWidget.setCurrentIndex(0)
+        self.ui.probeButton.clicked.connect(lambda:self.ui.stackedWidget.setCurrentIndex(2))
+        self.ui.scanButton.clicked.connect(lambda:self.ui.stackedWidget.setCurrentIndex(1))
+        self.ui.goBackButton.clicked.connect(lambda:self.ui.stackedWidget.setCurrentIndex(0))
+        self.ui.clickAndProbeButton.clicked.connect(lambda:self.ui.stackedWidget.setCurrentIndex(3))
 
+    
 import sys
 
 if __name__ == "__main__":
