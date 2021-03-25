@@ -11,6 +11,9 @@ import imageHandler
 import linuxcnc_driver
 import common
 
+
+
+
 class State(Enum):
     CalibrateCamera = 1
     GetParams = 5
@@ -29,7 +32,7 @@ class Thread(QThread):
         video_capture = imageHandler.camera_setup()    
                           
         while True:
-
+            
             if not imageHandler.updateImage.pause_updates:
                 orig_img = cv2.cvtColor(imageHandler.next_frame2(video_capture), cv2.COLOR_BGR2RGB)
                 imageHandler.updateImage.last_image0 = orig_img
@@ -39,14 +42,17 @@ class Thread(QThread):
             
             if self.win is None:
                 continue
+            
 
+            self.win.update()
+            
             if True:
                 # https://stackoverflow.com/a/55468544/6622587
                 #rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 #cv2.namedWindow('test draw')
                 #cv2.setMouseCallback('test draw',click_and_crop)
                 if self.key is not 255:
-                    imageHandler.process_key(self.key)
+                    self.win.process_key(self.key)
                     self.key = 255
                 
                 imageHandler.check_layers(orig_img)
@@ -60,6 +66,7 @@ class Thread(QThread):
                 elif self.win.state == State.SelectOrigin:
                     self.win.ui.instructionLabel.setText("Select [0,0] origin")
                     if imageHandler.addPoint(imageHandler.cnc_origin) == 1: 
+                        self.win.set_camera_scale()
                         self.win.state = State.Reference_Z
                 
                 # elif  self.win.state == State.CameraReady:
@@ -161,42 +168,87 @@ class MainWindow(QtWidgets.QMainWindow):
         # print(imageHandler.calib_rect_width)
         # print(imageHandler.calib_rect_height)
         # print(scale_x,scale_y)
-    def move(self):
-        if self.state < State.CameraReady:
-            print("Camera not ready")
-            return
-        x,y = self.camera2cnc(imageHandler.points2move[0][0],imageHandler.points2move[0][1])
-        imageHandler.updateImage.pause_updates = True
-        self.driver.move_to(x=x,y=y,feedrate=1000)
-    
-    def reference_z(self):
-        x,y = self.camera2cnc(imageHandler.points2move[0][0],imageHandler.points2move[0][1])
-        imageHandler.updateImage.pause_updates = True
-        self.driver.move_to(x=x,y=y,feedrate=1000)
-        
-        self.driver.ocode("o<down> call")
-        self.driver.cnc_s.poll()
-        self.reference_z = self.driver.cnc_s.probed_position[2]
-        self.state = State.Move
-    
-    def find_center(self):
-        x,y = self.camera2cnc(imageHandler.points2move[0][0],imageHandler.points2move[0][1])
-        imageHandler.updateImage.pause_updates = True
-        self.driver.move_to(x=x,y=y,feedrate=1000)
-        self.driver.move_to(z=(self.reference_z-3),feedrate=1000)
-        self.driver.find_hole_center()
-
-
-
-    def camera2cnc(self,x,y):
+    def set_camera_scale(self):
         origin = imageHandler.cnc_origin[0]
         scale_x = self.calib_width/imageHandler.updateImage.calib_rect_width
         scale_y = self.calib_height/imageHandler.updateImage.calib_rect_height
         x0 = origin[0]
         y0 = origin[1]
-        abs_x = scale_x*(x0 - x)
-        abs_y = scale_y*(y - y0)
-        return abs_x, abs_y
+        self.driver.set_camera_scale(x0,y0,scale_x,scale_y)
+
+    
+    def move(self):
+        if self.state < State.CameraReady:
+            print("Camera not ready")
+            return
+        x,y = self.driver.camera_to_cnc(imageHandler.points2move[0][0],imageHandler.points2move[0][1])
+        imageHandler.updateImage.pause_updates = True
+        self.driver.move_to(x=x,y=y,feedrate=1000)
+    
+    def reference_z(self):
+        x,y = self.driver.camera_to_cnc(imageHandler.points2move[0][0],imageHandler.points2move[0][1])
+        imageHandler.updateImage.pause_updates = True
+        print("1")
+        self.driver.move_to(x=x,y=y,feedrate=1000)
+        print("2")
+        
+        self.driver.ocode("o<down> call")
+        print("3")
+        
+        self.driver.cnc_s.poll()
+        self.reference_z = self.driver.cnc_s.probed_position[2]
+        self.state = State.Move
+    
+    def find_center(self):
+        x,y = self.driver.camera_to_cnc(imageHandler.points2move[0][0],imageHandler.points2move[0][1])
+        imageHandler.updateImage.pause_updates = True
+        self.driver.move_to(x=x,y=y,feedrate=1000)
+        self.driver.move_to(z=(self.reference_z-self.driver.probe_tip_diam),feedrate=1000)
+        self.driver.find_hole_center()
+
+
+    def update(self):
+        x_act, y_act, z_act = self.driver.get_actual_position()
+        self.ui.xDro.setText("{:.3f}".format(x_act))
+        self.ui.yDro.setText("{:.3f}".format(y_act))
+        self.ui.zDro.setText("{:.3f}".format(z_act))
+
+    def process_key(self,key):    
+        if key == 27:
+            return -1
+        elif key == ord('0'):
+            imageHandler.layer = 0
+        elif key == ord('1'):
+            imageHandler.layer = 1
+        elif key == ord('2'):
+            imageHandler.layer = 2
+        elif key == ord('3'):
+            imageHandler.layer = 3
+        elif key == ord('4'):
+            imageHandler.layer = 4      
+        elif key == ord('R'):
+            imageHandler.mode = 0
+        elif key == ord('C'):
+            imageHandler.mode = 1     
+        elif key == ord('E'):
+            imageHandler.mode = 2
+        elif key == ord('L'):
+            imageHandler.updateImage.pause_updates = not imageHandler.updateImage.pause_updates         
+        elif key == ord('Q'):
+            imageHandler.pt1_x,imageHandler.pt1_y = None,None
+            imageHandler.updateImage.printHelp = False 
+            imageHandler.updateImage.warp_m = None
+            imageHandler.updateImage.c_crop_rect = None 
+            imageHandler.mouse_sqr_pts = []
+            imageHandler.cnc_origin = []
+            imageHandler.points2move = []
+            self.state = State.CalibrateCamera
+        elif key == ord('D'):
+            imageHandler.layers[imageHandler.layer] = np.zeros(imageHandler.updateImage.final_pic.shape, dtype=np.uint8)   
+        elif key == ord('H'):
+            imageHandler.updateImage.printHelp = not imageHandler.updateImage.printHelp 
+        return 0    
+        
 
 import sys
 

@@ -220,8 +220,15 @@ def updateImage(image0):
 
     draw_selected_points(updateImage.final_pic, mouse_sqr_pts)
     draw_actual_point(updateImage.final_pic, mouse_pts)
+    
+    
+    
+    
     if updateImage.c_crop_rect:
-        cv2.rectangle(updateImage.final_pic,round_pt(updateImage.c_crop_rect[0]), round_pt(updateImage.c_crop_rect[1]),color=red,thickness=2)
+        p0 = round_pt(updateImage.c_crop_rect[0])
+        p1 = round_pt(updateImage.c_crop_rect[1])
+        cv2.rectangle(updateImage.final_pic,p0, p1,color=red,thickness=2)
+        draw_crosshairs(updateImage.final_pic,[(p0[0]+p1[0])/2,(p0[1]+p1[1])/2],200,c = (255,0,0), thickness =1)
     
     if cnc_origin:
         draw_selected_points(updateImage.final_pic,cnc_origin,c=(0,255,255), t = 2)
@@ -293,41 +300,7 @@ def check_layers(orig_img):
                 #add layer mask
                 layers.append(np.zeros(orig_img.shape, dtype=np.uint8)) 
 
-def process_key(key):
-    global layer,layers,mode, mouse_sqr_pts,cnc_origin, points2move
-    if key == 27:
-        return -1
-    elif key == ord('0'):
-        layer = 0
-    elif key == ord('1'):
-        layer = 1
-    elif key == ord('2'):
-        layer = 2
-    elif key == ord('3'):
-        layer = 3
-    elif key == ord('4'):
-        layer = 4      
-    elif key == ord('R'):
-        mode = 0
-    elif key == ord('C'):
-        mode = 1     
-    elif key == ord('E'):
-        mode = 2
-    elif key == ord('L'):
-        updateImage.pause_updates = not updateImage.pause_updates         
-    elif key == ord('Q'):
-        pt1_x,pt1_y = None,None
-        updateImage.printHelp = False 
-        updateImage.warp_m = None
-        updateImage.c_crop_rect = None 
-        mouse_sqr_pts = []
-        cnc_origin = []
-        points2move = []
-    elif key == ord('D'):
-        layers[layer] = np.zeros(updateImage.final_pic.shape, dtype=np.uint8)   
-    elif key == ord('H'):
-        updateImage.printHelp = not updateImage.printHelp 
-    return 0
+
 
 def main():
     global mode,pt1_x,pt1_y,layer,layers
