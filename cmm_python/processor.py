@@ -6,6 +6,44 @@ import math
 from mpl_toolkits.mplot3d import Axes3D
 
 
+#***********
+#Linear
+#***********
+#compensation on fly for linear edge
+def compensate_linear(point0,point1,dir = 'XY'):
+    if dir == 'XY':
+        pt0 = point0
+        pt1 = point1
+    elif dir == 'YX':
+        pt0 = list(reversed(point0))
+        pt1 = list(reversed(point1))
+    
+    dx = pt1[0] - pt0[0]
+    dy = pt1[1] - pt0[1]
+    print("difs:",dx,dy)
+    try:
+        alpha = self.get_angle(dx,dy)
+    except ZeroDivisionError:
+        return None
+
+    print("alpha:",alpha)
+
+    alpha2 = math.pi/2 - alpha
+    print("alpha2:",alpha2)
+    
+    phi = math.pi - math.pi/2 - alpha2
+    print("phi:",phi)
+    r = self.probe_tip_diam/2
+    print(r)
+    x_comp = r * math.sin(phi)
+    y_comp = x_comp / math.tan(alpha2)    
+    print("comp",x_comp,y_comp)
+
+    if dir == 'XY':
+        return x_comp,y_comp
+    elif dir == 'YX':
+        return y_comp,x_comp
+
 #***************
 #Cubic
 #***************
@@ -97,3 +135,7 @@ def compensate_xyz(X,Y,Z, comp):
 # ax.plot_surface(X,Y,Z)
 # ax.scatter(x,y,z)
 # plt.show()
+
+Z = np.array([0,0,1,1])
+res = np.gradient(Z,1)
+print(res)
