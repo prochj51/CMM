@@ -6,38 +6,33 @@ import math
 from mpl_toolkits.mplot3d import Axes3D
 
 
+
+def get_angle(point0,point1):
+    dx = point1[0] - point0[0]
+    dy = point1[1] - point0[1]
+    return math.atan(float(dy)/float(dx))
+
 #***********
 #Linear
 #***********
 #compensation on fly for linear edge
-def compensate_linear(point0,point1,dir = 'XY'):
+def compensate_linear(point0,point1,comp=1.5,dir = 'XY'):
     if dir == 'XY':
         pt0 = point0
         pt1 = point1
     elif dir == 'YX':
         pt0 = list(reversed(point0))
         pt1 = list(reversed(point1))
-    
-    dx = pt1[0] - pt0[0]
-    dy = pt1[1] - pt0[1]
-    print("difs:",dx,dy)
     try:
-        alpha = self.get_angle(dx,dy)
+        alpha = get_angle(pt0,pt1)
     except ZeroDivisionError:
         return None
 
-    print("alpha:",alpha)
-
     alpha2 = math.pi/2 - alpha
-    print("alpha2:",alpha2)
-    
     phi = math.pi - math.pi/2 - alpha2
-    print("phi:",phi)
-    r = self.probe_tip_diam/2
-    print(r)
+    r = comp/2
     x_comp = r * math.sin(phi)
     y_comp = x_comp / math.tan(alpha2)    
-    print("comp",x_comp,y_comp)
 
     if dir == 'XY':
         return x_comp,y_comp
@@ -118,24 +113,27 @@ def compensate_xyz(X,Y,Z, comp):
             Z_new[row_indx][col_indx] = Z[row_indx][col_indx] + n[2]
     return X_new, Y_new, Z_new
 
+def main():
+    #Test data.
+    # X = np.arange(-5, 5, 0.5)
 
-#Test data.
-# X = np.arange(-5, 5, 0.5)
-
-# Y = np.arange(-5, 5, 0.5)
-# X, Y = np.meshgrid(X, Y)
-# R = np.sqrt(X**2 + Y**2)
-# Z = np.sin(R)
+    # Y = np.arange(-5, 5, 0.5)
+    # X, Y = np.meshgrid(X, Y)
+    # R = np.sqrt(X**2 + Y**2)
+    # Z = np.sin(R)
 
 
-# x,y,z = compensate_xyz(X,Y,Z, 1.5)
+    # x,y,z = compensate_xyz(X,Y,Z, 1.5)
 
-# fig = plt.figure()
-# ax = fig.add_subplot(111, projection='3d')
-# ax.plot_surface(X,Y,Z)
-# ax.scatter(x,y,z)
-# plt.show()
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111, projection='3d')
+    # ax.plot_surface(X,Y,Z)
+    # ax.scatter(x,y,z)
+    # plt.show()
 
-Z = np.array([0,0,1,1])
-res = np.gradient(Z,1)
-print(res)
+    Z = np.array([0,0,1,1])
+    res = np.gradient(Z,1)
+    print(res)
+
+if __name__ == "__main__":
+    main()
