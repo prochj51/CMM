@@ -11,10 +11,11 @@ class CncDriver():
         self.inifile = linuxcnc.ini("~/linuxcnc/configs/cmm/CMM/cmm.ini")
         self.cnc_s = linuxcnc.stat()
         self.cnc_c = linuxcnc.command()
+        self.cnc_e = linuxcnc.error_channel()
         self.c_feedrate = 400
         self.probe_tip_diam = float(self.inifile.find("TOOLSENSOR", "TIP_DIAMETER")) or  3.0
         self.probe_tip_rad = self.probe_tip_diam/2
-        self.z_base = 100
+        self.z_base = 0
         self.clearance = 3.
         self.overshoot = 3.
         self.cnc_s.poll()
@@ -30,12 +31,24 @@ class CncDriver():
         self.cnc_s.poll()
         return not self.cnc_s.estop and self.cnc_s.enabled and (self.cnc_s.homed.count(1) == self.cnc_s.joints) and (self.cnc_s.interp_state == linuxcnc.INTERP_IDLE)
     
-    def set_camera_home(self,x,y,z=370):
+    def set_camera_home(self,x,y,z=20): #370 creality
         self.camera_home = [x,y,z]
         
-    def is_moving():
+    def is_moving(self):
         self.cnc_s.poll()
         return any([abs(self.cnc_s.joint[x]['velocity']) > 0. for x in range(3)])
+
+    def read_error_channel(self):
+        # error = self.cnc_e.poll()
+
+        # if error:
+        #     kind, text = error
+        #     if kind in (linuxcnc.NML_ERROR, linuxcnc.OPERATOR_ERROR):
+        #         typus = "error"
+        #     else:
+        #         typus = "info"
+        #     print(typus, text)
+        pass
 
     def rotate_xy_system(self, angle):
         cmd = "G10 L2 P0"    
@@ -46,13 +59,13 @@ class CncDriver():
         return abs(a-b) <= max(rel_tol * max(abs(a), abs(b)), abs_tol)
 
     def append_coords_to_gcode(self,cmd,x=None, y=None, z=None, feedrate=None):
-        if x:
+        if x is not None:
             cmd += 'X{0:f} '.format(x)
-        if y:
+        if y is not None:
             cmd += 'Y{0:f} '.format(y)    
-        if z:
+        if z is not None:
             cmd += 'Z{0:f} '.format(z)
-
+        
         if feedrate is None:
             feedrate = self.c_feedrate
 
@@ -83,7 +96,9 @@ class CncDriver():
         
         return x_new, y_new   
 
-    
+    def probe_down(self):
+        self.probe_to(z=self.z_hard_min)
+
     def recalc_limits(self):
         
         self.cnc_s.poll()
@@ -126,7 +141,7 @@ class CncDriver():
         if rel:
             cmd = 'G91 G1'
         else:    
-            cmd = 'G90 G1'
+            cmd = 'G1'
         
         cmd = self.append_coords_to_gcode(cmd, x = x,y = y, z = z, feedrate=feedrate)
         self.execute_gcode(cmd)
@@ -190,6 +205,7 @@ class CncDriver():
 
     def camera_to_cnc(self,x,y):
         abs_x = self.xscale*(self.x0 - x)
+
         abs_y = self.yscale*(y - self.y0)
         return abs_x, abs_y
     
@@ -199,20 +215,23 @@ class CncDriver():
     #given pixel coordinates
     def probe_in_camera_z_perspective(self,x,y):
         x,y = self.camera_to_cnc(x,y)
+        
         x_c = self.camera_home[0]
         y_c = self.camera_home[1]
         z_c = self.camera_home[2]
-        zdiff = z_c - self.z_base
         
-        kx = z_c/(x-xc)
-        ky = z_c/(y-yc)
-        x0 = xc + zdiff/kx
-        y0 = yc + zdiff/ky
+        camera_heigth = z_c - self.z_hard_min
+        z_diff = z_c - self.z_base
+        
+        kx = (x-x_c)/camera_heigth
+        ky = (y-y_c)/camera_heigth
+        x0 = x_c + kx*z_diff
+        y0 = y_c + ky*z_diff
         
         #move to z_base        
         self.move_to(z=self.z_base)
         self.move_to(x=x0,y=y0)
-        self.probe_to(x=x,y=y,z=0)
+        self.probe_to(x=x,y=y,z=self.z_hard_min)
 
     def get_opposite_direction(self,dir):
         if dir == 'xminus': 
@@ -292,9 +311,9 @@ class CncDriver():
         return x,y,z0
 
     def find_center_between_points(self, dir1, dir2, pos):
-        self.probe_dir(dir1)
+        self.find_rising_edge(dir1)
         probe_max = self.cnc_s.probed_position[pos]
-        self.probe_dir(dir2)
+        self.find_rising_edge(dir2)
         probe_min = self.cnc_s.probed_position[pos]
         return (probe_max+probe_min)/2
 
@@ -361,13 +380,10 @@ class CncDriver():
 
 
 
-
-        
-
-
 #Just for testing
 def main():
     c = CncDriver()
+    c.probe_down()
     
 
 if __name__ == "__main__":
