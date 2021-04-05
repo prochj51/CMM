@@ -13,7 +13,7 @@ c_label_font = cv2.FONT_HERSHEY_SIMPLEX
 c_label_color = (0, 0, 255)
 c_label_s = 1
 c_label_line_type = cv2.LINE_8
-c_demo_mode = False
+c_demo_mode = True
 
 c_line_color = (0, 200, 0)
 c_path_color = (200, 200, 64)
@@ -181,7 +181,7 @@ def addPoint(struct):
     return 0
 
 @common.static_vars(img=None,final_pic = None, last_image0 = None, pause_updates = False, moving = False,warp_m=None, printHelp = False, c_crop_rect = None,
-calib_rect_width = None, calib_rect_height = None)
+center_x = None, center_y = None, calib_rect_width = None, calib_rect_height = None)
 def updateImage(image0):
     
     global mouse_pts,mouse_sqr_pts_done, mouse_sqr_pts
@@ -228,6 +228,8 @@ def updateImage(image0):
         p0 = round_pt(updateImage.c_crop_rect[0])
         p1 = round_pt(updateImage.c_crop_rect[1])
         cv2.rectangle(updateImage.final_pic,p0, p1,color=red,thickness=2)
+        updateImage.center_x = (p0[0]+p1[0])/2
+        updateImage.center_y = (p0[1]+p1[1])/2
         draw_crosshairs(updateImage.final_pic,[(p0[0]+p1[0])/2,(p0[1]+p1[1])/2],200,c = (255,0,0), thickness =1)
     
     if cnc_origin:
@@ -271,7 +273,7 @@ def updateImage(image0):
 
 def next_frame2(video_capture):
     if c_demo_mode:
-        fn = 'holes.png'
+        fn = 'dummy640_480.png'
         # fn_pat = 'tests/z_camera/1280x720/mov_raw_{:06d}.ppm'
         image0 = next_frame(video_capture, fn=fn)
     else:

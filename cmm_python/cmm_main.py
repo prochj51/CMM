@@ -175,15 +175,16 @@ class MainWindow(QtWidgets.QMainWindow):
         x0 = origin[0]
         y0 = origin[1]
         self.driver.set_camera_scale(x0,y0,scale_x,scale_y)
-
-    
+        camera_home_x, camera_home_y =  self.driver.camera_to_cnc(imageHandler.updateImage.center_x,imageHandler.updateImage.center_y)
+        self.driver.set_camera_home(camera_home_x,camera_home_y)
+        
     def move(self):
-        if self.state < State.CameraReady:
+        if self.state.value < State.CameraReady.value:
             print("Camera not ready")
             return
-        x,y = self.driver.camera_to_cnc(imageHandler.points2move[0][0],imageHandler.points2move[0][1])
+        x,y = imageHandler.points2move[0][0],imageHandler.points2move[0][1]
         imageHandler.updateImage.pause_updates = True
-        self.driver.move_to(x=x,y=y,feedrate=1000)
+        self.driver.probe_in_camera_z_perspective(x,y)
     
     def reference_z(self):
         x,y = self.driver.camera_to_cnc(imageHandler.points2move[0][0],imageHandler.points2move[0][1])
@@ -212,6 +213,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui.xDro.setText("{:.3f}".format(x_act))
         self.ui.yDro.setText("{:.3f}".format(y_act))
         self.ui.zDro.setText("{:.3f}".format(z_act))
+
+        self.driver.read_error_channel()
 
     def process_key(self,key):    
         if key == 27:
