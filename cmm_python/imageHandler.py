@@ -221,9 +221,6 @@ def updateImage(image0):
     draw_selected_points(updateImage.final_pic, mouse_sqr_pts)
     draw_actual_point(updateImage.final_pic, mouse_pts)
     
-    
-    
-    
     if updateImage.c_crop_rect:
         p0 = round_pt(updateImage.c_crop_rect[0])
         p1 = round_pt(updateImage.c_crop_rect[1])
@@ -270,6 +267,20 @@ def updateImage(image0):
 
     return presentPic
 
+def delete_current_layer():
+    global layers, layer
+    layers[layer] = np.zeros(updateImage.final_pic.shape, dtype=np.uint8)  
+
+def updateImage_to_default():
+    global pt1_x, pt1_y, mouse_sqr_pts, cnc_origin, points2move
+    pt1_x,pt1_y = None,None
+    mouse_sqr_pts = []
+    cnc_origin = []
+    points2move = []
+    updateImage.printHelp = False 
+    updateImage.warp_m = None
+    updateImage.c_crop_rect = None 
+    
 
 def next_frame2(video_capture):
     if c_demo_mode:
@@ -297,7 +308,6 @@ def camera_setup():
 
 def check_layers(orig_img):
     if layer+1 > len(layers):
-            
             for indx in range(len(layers),layer+1):
                 #add layer mask
                 layers.append(np.zeros(orig_img.shape, dtype=np.uint8)) 

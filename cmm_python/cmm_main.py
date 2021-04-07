@@ -1,8 +1,7 @@
 import cv2
 from cmm import Ui_MainWindow
 
-from PyQt5 import QtWidgets
-from PyQt5 import QtCore
+from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtWidgets import  QWidget, QLabel, QApplication
 from PyQt5.QtCore import QThread, Qt, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QImage, QPixmap
@@ -10,8 +9,13 @@ from enum import Enum
 import imageHandler
 import linuxcnc_driver
 import common
+from database import CMM_Db
 
+import matplotlib
+matplotlib.use('Qt5Agg')
 
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+#from matplotlib.figure import Figure
 
 
 class State(Enum):
@@ -96,6 +100,8 @@ class Thread(QThread):
                 p = convertToQtFormat.scaled(640, 480, Qt.KeepAspectRatio)
                 self.changePixmap.emit(p)
 
+
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, parent=None):
         super(MainWindow, self).__init__(parent=parent)
@@ -104,17 +110,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self.initUI()
         self.state = State.CalibrateCamera
         self.driver = linuxcnc_driver.CncDriver()
+        self.db = CMM_Db()
+
+        
         
     
     @pyqtSlot(QImage)
     def setImage(self, image):
-        self.label.setPixmap(QPixmap.fromImage(image))    
+        self.label.setPixmap(QPixmap.fromImage(image))   
+
     def initUI(self):
         self.setWindowTitle("Win")
         #self.setGeometry(self.left, self.top, self.width, self.height)
         self.resize(1200, 800)
         # create a label
-        self.label =self.ui.cvlabel
+        self.label = self.ui.cvlabel
         self.label.move(280, 120)
         self.label.resize(640, 480)
         self.label.setMouseTracking(True)
@@ -122,12 +132,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui.enterDimensionsButton.clicked.connect(self.processDimensions)
         self.ui.moveButton.clicked.connect(self.move)
         self.ui.referenceZ.clicked.connect(self.reference_z)
-        self.ui.findeHoleCenter.clicked.connect(self.find_center)
-        self.initStackLogic()
+        self.initComboBox()
         self.selectedPoints = []
         self.th = Thread(self)
         self.th.changePixmap.connect(self.setImage)
         self.th.start()
+
+        self.addToolBar(NavigationToolbar(self.ui.plotWidget.canvas,self))
+        #self.ui.plotWidget = MplWidget(self.centralWidget)
+        # self.plotLabel.setGeometry(QtCore.QRect(20, 250, 821, 591))
+        # self.plotLabel.setObjectName("plotWidget")
         self.show()    
 
     def eventFilter(self, source, event):
@@ -144,13 +158,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.th.key = event.key()
         event.accept()
 
-    def initStackLogic(self):
-        self.ui.stackedWidget.setCurrentIndex(0)
-        self.ui.probeButton.clicked.connect(lambda:self.ui.stackedWidget.setCurrentIndex(2))
-        self.ui.scanButton.clicked.connect(lambda:self.ui.stackedWidget.setCurrentIndex(1))
-        self.ui.goBackButton.clicked.connect(lambda:self.ui.stackedWidget.setCurrentIndex(0))
-        self.ui.clickAndProbeButton.clicked.connect(lambda:self.ui.stackedWidget.setCurrentIndex(3))
-    
+    def initComboBox(self):
+        self.ui.comboBox.addItem("Find inner hole center")
+        self.ui.comboBox.addItem("Find outer hole center")        
+        self.ui.comboBox.addItem("Find inner rectangle center")        
+        self.ui.comboBox.addItem("Find multiple holes positions")        
+        self.ui.comboBox.addItem("Scan XY")        
+        self.ui.comboBox.addItem("Scan circumference")        
+        self.ui.comboBox.addItem("Circularity")        
+        self.ui.comboBox.addItem("Cylindarity")                 
+        
     def processDimensions(self):
         if self.state != State.GetParams:
             return
@@ -187,19 +204,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self.driver.probe_in_camera_z_perspective(x,y)
     
     def reference_z(self):
-        x,y = self.driver.camera_to_cnc(imageHandler.points2move[0][0],imageHandler.points2move[0][1])
+        if self.state.value < State.CameraReady.value:
+            print("Camera not ready")
+            return
+        x,y = imageHandler.points2move[0][0],imageHandler.points2move[0][1]
         imageHandler.updateImage.pause_updates = True
-        print("1")
-        self.driver.move_to(x=x,y=y,feedrate=1000)
-        print("2")
-        
-        self.driver.ocode("o<down> call")
-        print("3")
+        self.driver.probe_in_camera_z_perspective(x,y)
         
         self.driver.cnc_s.poll()
         self.reference_z = self.driver.cnc_s.probed_position[2]
+
+        print("Probing done")
+        print("Z height: {}".format(self.reference_z))
         self.state = State.Move
     
+    def start(self):
+        pass
+
     def find_center(self):
         x,y = self.driver.camera_to_cnc(imageHandler.points2move[0][0],imageHandler.points2move[0][1])
         imageHandler.updateImage.pause_updates = True
@@ -238,16 +259,10 @@ class MainWindow(QtWidgets.QMainWindow):
         elif key == ord('L'):
             imageHandler.updateImage.pause_updates = not imageHandler.updateImage.pause_updates         
         elif key == ord('Q'):
-            imageHandler.pt1_x,imageHandler.pt1_y = None,None
-            imageHandler.updateImage.printHelp = False 
-            imageHandler.updateImage.warp_m = None
-            imageHandler.updateImage.c_crop_rect = None 
-            imageHandler.mouse_sqr_pts = []
-            imageHandler.cnc_origin = []
-            imageHandler.points2move = []
+            imageHandler.updateImage_to_default()
             self.state = State.CalibrateCamera
         elif key == ord('D'):
-            imageHandler.layers[imageHandler.layer] = np.zeros(imageHandler.updateImage.final_pic.shape, dtype=np.uint8)   
+            imageHandler.delete_current_layer()  
         elif key == ord('H'):
             imageHandler.updateImage.printHelp = not imageHandler.updateImage.printHelp 
         return 0    
@@ -261,3 +276,4 @@ if __name__ == "__main__":
     w.th.win = w
     w.show()
     sys.exit(app.exec_())
+    
