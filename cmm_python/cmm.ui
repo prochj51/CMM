@@ -37,168 +37,13 @@ max-height:40px;
         <widget class="QFrame" name="leftVerticalFrame">
          <layout class="QVBoxLayout" name="verticalLayout_9">
           <item>
-           <widget class="QFrame" name="horizontalFrame">
-            <property name="maximumSize">
-             <size>
-              <width>16777215</width>
-              <height>50</height>
-             </size>
-            </property>
-            <layout class="QHBoxLayout" name="horizontalLayout">
-             <item>
-              <widget class="QPushButton" name="goBackButton">
-               <property name="styleSheet">
-                <string notr="true">background-color: rgb(52, 101, 164);</string>
-               </property>
-               <property name="text">
-                <string>Go back</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <spacer name="horizontalSpacer">
-               <property name="orientation">
-                <enum>Qt::Horizontal</enum>
-               </property>
-               <property name="sizeHint" stdset="0">
-                <size>
-                 <width>40</width>
-                 <height>20</height>
-                </size>
-               </property>
-              </spacer>
-             </item>
-            </layout>
-           </widget>
+           <widget class="QComboBox" name="comboBox"/>
           </item>
           <item>
-           <widget class="QStackedWidget" name="stackedWidget">
-            <property name="maximumSize">
-             <size>
-              <width>16777215</width>
-              <height>200</height>
-             </size>
+           <widget class="QPushButton" name="startButton">
+            <property name="text">
+             <string>Start</string>
             </property>
-            <property name="currentIndex">
-             <number>2</number>
-            </property>
-            <widget class="QWidget" name="page">
-             <layout class="QVBoxLayout" name="verticalLayout_2">
-              <item>
-               <widget class="QFrame" name="verticalFrame">
-                <layout class="QVBoxLayout" name="verticalLayout">
-                 <item>
-                  <widget class="QPushButton" name="probeButton">
-                   <property name="text">
-                    <string>Probe</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QPushButton" name="scanButton">
-                   <property name="text">
-                    <string>Scan</string>
-                   </property>
-                  </widget>
-                 </item>
-                </layout>
-               </widget>
-              </item>
-             </layout>
-            </widget>
-            <widget class="QWidget" name="page_4">
-             <layout class="QVBoxLayout" name="verticalLayout_8">
-              <item>
-               <widget class="QFrame" name="verticalFrame">
-                <layout class="QVBoxLayout" name="verticalLayout_7">
-                 <item>
-                  <widget class="QPushButton" name="pushButton_9">
-                   <property name="text">
-                    <string>Complete scan</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QPushButton" name="pushButton_10">
-                   <property name="text">
-                    <string>Partial scans</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QPushButton" name="pushButton_11">
-                   <property name="text">
-                    <string>Circumference scan</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QPushButton" name="pushButton_12">
-                   <property name="text">
-                    <string>Geometric tolerances</string>
-                   </property>
-                  </widget>
-                 </item>
-                </layout>
-               </widget>
-              </item>
-             </layout>
-            </widget>
-            <widget class="QWidget" name="page_2">
-             <layout class="QVBoxLayout" name="verticalLayout_4">
-              <item>
-               <widget class="QFrame" name="verticalFrame">
-                <layout class="QVBoxLayout" name="verticalLayout_3">
-                 <item>
-                  <widget class="QPushButton" name="autoSearchButton">
-                   <property name="text">
-                    <string>Automatic Search</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QPushButton" name="clickAndProbeButton">
-                   <property name="text">
-                    <string>Click and probe</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QPushButton" name="manProbeButton">
-                   <property name="text">
-                    <string>Manual Probe</string>
-                   </property>
-                  </widget>
-                 </item>
-                </layout>
-               </widget>
-              </item>
-             </layout>
-            </widget>
-            <widget class="QWidget" name="page_3">
-             <layout class="QVBoxLayout" name="verticalLayout_6">
-              <item>
-               <widget class="QFrame" name="verticalFrame">
-                <layout class="QVBoxLayout" name="verticalLayout_5">
-                 <item>
-                  <widget class="QPushButton" name="pushButton_6">
-                   <property name="text">
-                    <string>Hole</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QPushButton" name="pushButton_7">
-                   <property name="text">
-                    <string>Rectangle</string>
-                   </property>
-                  </widget>
-                 </item>
-                </layout>
-               </widget>
-              </item>
-             </layout>
-            </widget>
            </widget>
           </item>
           <item>
@@ -356,13 +201,6 @@ max-height:40px;
            </widget>
           </item>
           <item>
-           <widget class="QPushButton" name="findeHoleCenter">
-            <property name="text">
-             <string>Find hole center</string>
-            </property>
-           </widget>
-          </item>
-          <item>
            <spacer name="verticalSpacer">
             <property name="orientation">
              <enum>Qt::Vertical</enum>
@@ -381,6 +219,9 @@ max-height:40px;
        <item row="0" column="1">
         <widget class="QFrame" name="rightVerticalFrame">
          <layout class="QVBoxLayout" name="right">
+          <item>
+           <widget class="MplWidget" name="plotWidget" native="true"/>
+          </item>
           <item>
            <widget class="QLabel" name="cvlabel">
             <property name="sizePolicy">
@@ -426,6 +267,14 @@ max-height:40px;
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>MplWidget</class>
+   <extends>QWidget</extends>
+   <header>mplwidget.h</header>
+   <container>1</container>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>
