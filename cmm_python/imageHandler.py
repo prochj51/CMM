@@ -38,7 +38,12 @@ colors = [yellow,black,orange,blue,green]
 reference_z = (0,0)
 
 cnc_origin = []
-points2move = []
+points_struct =  []
+actual_position = None
+mouse_pts = []
+mouse_moving = False
+mouse_sqr_pts = []
+mouse_sqr_pts_done = False
 
 def line_length(pt1, pt2):
     delta_x = pt2[0] - pt1[0]
@@ -60,6 +65,7 @@ def object_drawing_qt(event,x,y):
                 cv2.circle(mask,(pt1_x,pt1_y),int(math.sqrt((pt1_x-x)**2 + (pt1_y-y)**2)),color=(255,255,255),thickness=-1)
             elif mode == 2:
                 cv2.line(mask,(pt1_x,pt1_y),(x,y),color=(255,255,255),thickness=3)
+ 
             pt1_x , pt1_y = None , None
             partialDraw = False
         else:    
@@ -84,7 +90,6 @@ def object_drawing_qt(event,x,y):
 
 
 def plate_mask(image):
-   
     if updateImage.c_crop_rect is None:
         mask = np.ones(image.shape, dtype=image.dtype) * 255
     else:
@@ -99,11 +104,6 @@ def plate_mask(image):
 def draw_crosshairs(img, pt, off, c, thickness):
     cv2.line(img, (pt[0] - off, pt[1]), (pt[0] + off, pt[1]), c, thickness=thickness, lineType=cv2.LINE_AA)
     cv2.line(img, (pt[0], pt[1] - off), (pt[0], pt[1] + off), c, thickness=thickness, lineType=cv2.LINE_AA)
-
-mouse_pts = []
-mouse_moving = False
-mouse_sqr_pts = []
-mouse_sqr_pts_done = False
 
 def draw_selected_points(img, pts, c=(255, 0, 0), t=1):
     off = 10
@@ -127,16 +127,22 @@ def draw_actual_point(img, pts, c=(255, 0, 0), t=1):
 def click(event, x, y):
     global mouse_pts,mouse_moving
     global mouse_sqr_pts
-    global mouse_sqr_pts_done
+    global mouse_sqr_pts_done, points_struct
 
     if event.type() == QtCore.QEvent.MouseButtonPress:
-        mouse_sqr_pts += [(x, y)]
+        if mouse_sqr_pts_done:
+            points_struct += [(x, y)]
+        else:
+            mouse_sqr_pts += [(x, y)]
+
     elif event.type() == QtCore.QEvent.MouseMove:        
         mouse_pts = (x,y) 
+    
 
 def warpImage():
-    global mouse_pts,mouse_sqr_pts_done, mouse_sqr_pts
-    if mouse_sqr_pts_done:
+    global mouse_pts, mouse_sqr_pts_done, mouse_sqr_pts
+    if len(mouse_sqr_pts) == 4:
+        mouse_sqr_pts_done = True
         rct = np.array(mouse_sqr_pts, dtype=np.float32)
         w1 = line_length(mouse_sqr_pts[0], mouse_sqr_pts[1])
         w2 = line_length(mouse_sqr_pts[2], mouse_sqr_pts[3])
@@ -156,8 +162,7 @@ def warpImage():
         updateImage.calib_rect_width = pt2[0] - pt1[0]
         updateImage.calib_rect_height = pt2[1] - pt1[1]
         
-        mouse_sqr_pts = []
-        mouse_sqr_pts_done = False   
+        mouse_sqr_pts = [] 
         
         #get_measurement.c_view = 3
         #get_measurement.mouse_op = ''
@@ -165,10 +170,7 @@ def warpImage():
         #in_alignment = True
         return True
     else:
-        if len(mouse_sqr_pts) == 4:
-            mouse_sqr_pts_done = True
-        return False    
-    
+        return False
     
 
 def addPoint(struct):
@@ -180,17 +182,23 @@ def addPoint(struct):
         return 1 
     return 0
 
+def setOrigin():
+    global cnc_origin, points_struct
+    cnc_origin += points_struct
+    points_struct = []
+
+
+
 @common.static_vars(img=None,final_pic = None, last_image0 = None, pause_updates = False, moving = False,warp_m=None, printHelp = False, c_crop_rect = None,
 center_x = None, center_y = None, calib_rect_width = None, calib_rect_height = None)
 def updateImage(image0):
     
     global mouse_pts,mouse_sqr_pts_done, mouse_sqr_pts
-    global  cnc_origin, points2move
+    global  cnc_origin, points_struct, actual_position
     
     alpha = 0.4  # Transparency factor.
 
     # Following line overlays transparent rectangle over the image
-    
     
     rows,cols,channels = image0.shape
 
@@ -201,7 +209,7 @@ def updateImage(image0):
     else:
         image = image0.copy()
 
-    
+
     #get mask
     mask = cv2.cvtColor(layers[layer],cv2.COLOR_BGR2GRAY)
     mask_inv = cv2.bitwise_not(mask)
@@ -217,7 +225,6 @@ def updateImage(image0):
     updateImage.final_pic = cv2.add(img1_bg,img2_fg)
     updateImage.final_pic = cv2.addWeighted(updateImage.final_pic, alpha, image, 1 - alpha, 0) 
                
-
     draw_selected_points(updateImage.final_pic, mouse_sqr_pts)
     draw_actual_point(updateImage.final_pic, mouse_pts)
     
@@ -231,8 +238,10 @@ def updateImage(image0):
     
     if cnc_origin:
         draw_selected_points(updateImage.final_pic,cnc_origin,c=(0,255,255), t = 2)
-    if points2move:
-        draw_selected_points(updateImage.final_pic,points2move,c=(255,255,0), t = 2)
+    if points_struct:
+        draw_selected_points(updateImage.final_pic,points_struct,c=(255,255,0), t = 2)
+    if actual_position is not None:
+        cv2.circle(updateImage.final_pic,(actual_position[0],actual_position[1]),10,color=red,thickness=3)
 
     if updateImage.moving:
         alpha = 0.4  # Transparency factor.
@@ -245,8 +254,6 @@ def updateImage(image0):
         #presentPic = cv2.resize(img_all, None, fx=scale, fy=scale)
     else:
         presentPic = updateImage.final_pic
-
-
 
     if updateImage.printHelp == True:
         def h(i):
@@ -272,14 +279,15 @@ def delete_current_layer():
     layers[layer] = np.zeros(updateImage.final_pic.shape, dtype=np.uint8)  
 
 def updateImage_to_default():
-    global pt1_x, pt1_y, mouse_sqr_pts, cnc_origin, points2move
+    global pt1_x, pt1_y, mouse_sqr_pts, cnc_origin, points_struct, mouse_sqr_pts_done
     pt1_x,pt1_y = None,None
     mouse_sqr_pts = []
     cnc_origin = []
-    points2move = []
+    points_struct= []
     updateImage.printHelp = False 
     updateImage.warp_m = None
     updateImage.c_crop_rect = None 
+    mouse_sqr_pts_done = False
     
 
 def next_frame2(video_capture):

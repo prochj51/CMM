@@ -37,7 +37,11 @@ max-height:40px;
         <widget class="QFrame" name="leftVerticalFrame">
          <layout class="QVBoxLayout" name="verticalLayout_9">
           <item>
-           <widget class="QComboBox" name="comboBox"/>
+           <widget class="QComboBox" name="comboBox">
+            <property name="focusPolicy">
+             <enum>Qt::NoFocus</enum>
+            </property>
+           </widget>
           </item>
           <item>
            <widget class="QPushButton" name="startButton">
@@ -183,6 +187,13 @@ max-height:40px;
            <widget class="QPushButton" name="enterDimensionsButton">
             <property name="text">
              <string>Enter dimensions</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="clearPointsButton">
+            <property name="text">
+             <string>Clear selected points</string>
             </property>
            </widget>
           </item>

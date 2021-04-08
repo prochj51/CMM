@@ -7,7 +7,7 @@ import math
 import processor
 
 class CncDriver():
-    def __init__(self):
+    def __init__(self,wait_func = None):
         self.inifile = linuxcnc.ini("~/linuxcnc/configs/cmm/CMM/cmm.ini")
         self.cnc_s = linuxcnc.stat()
         self.cnc_c = linuxcnc.command()
@@ -25,6 +25,7 @@ class CncDriver():
         self.y_hard_max = self.cnc_s.joint[1]["max_position_limit"] 
         self.z_hard_min = self.cnc_s.joint[2]["min_position_limit"] 
         self.z_hard_max = self.cnc_s.joint[2]["max_position_limit"] 
+        self.wait_func = wait_func
         
         
     def ok_for_mdi(self):
@@ -86,21 +87,22 @@ class CncDriver():
         while self.cnc_s.interp_state != linuxcnc.INTERP_IDLE :
             #if self.error_poll() == -1:
                 #return -1
-            self.cnc_c.wait_complete()
+            if self.wait_func is not None:
+                    self.wait_func() #Added so other process is not stalled
+            else:
+                self.cnc_c.wait_complete()
             self.cnc_s.poll()
         self.cnc_c.wait_complete()
     
     def transform_coordinates(self,x,y,phi):
         x_new = x / math.cos(phi) + (y-x*math.tan(phi))*math.sin(phi)
         y_new = (y-x*math.tan(phi))*math.cos(phi)
-        
         return x_new, y_new   
 
     def probe_down(self):
         self.probe_to(z=self.z_hard_min)
 
     def recalc_limits(self):
-        
         self.cnc_s.poll()
         phi_deg = self.cnc_s.rotation_xy
         safety = 1
@@ -108,8 +110,7 @@ class CncDriver():
             return self.x_hard_min + safety, self.x_hard_max - safety, self.y_hard_min + safety, self.y_hard_max - safety
         phi = math.radians(phi_deg)
         phi_compl = math.radians(90 - phi_deg)
-        
-        
+                
         x,y = self.get_actual_position(mach_coords = True)[:2]
         x_r, y_r = self.transform_coordinates(x,y,phi)
           
@@ -176,25 +177,6 @@ class CncDriver():
             x, y = self.transform_coordinates(x,y,math.radians(self.cnc_s.rotation_xy))
         return x,y,z
 
-    def ocode(self, s, data = None):
-        if self.ok_for_mdi():
-            self.cnc_c.mode(linuxcnc.MODE_MDI)
-            self.cnc_c.wait_complete() # wait until mode switch executed
-        else:
-            return -1
-
-        self.cnc_c.mdi(s)
-        self.cnc_s.poll()
-        while self.cnc_s.interp_state != linuxcnc.INTERP_IDLE :
-            #if self.error_poll() == -1:
-                #return -1
-            self.cnc_c.wait_complete()
-            self.cnc_s.poll()
-        self.cnc_c.wait_complete()
-        #if self.error_poll() == -1:
-            #return -1
-        return 0
-
     def set_camera_scale(self,x0,y0, xscale, yscale):
         self.x0 = x0
         self.y0 = y0
@@ -203,12 +185,16 @@ class CncDriver():
         print("Scale was set")
 
 
-    def camera_to_cnc(self,x,y):
-        abs_x = self.xscale*(self.x0 - x)
-
-        abs_y = self.yscale*(y - self.y0)
-        return abs_x, abs_y
+    def camera_to_cnc(self,pix_x,pix_y):
+        cnc_x = self.xscale*(self.x0 - pix_x)
+        cnc_y = self.yscale*(pix_y - self.y0)
+        return cnc_x, cnc_y
     
+    def cnc_to_camera(self,cnc_x,cnc_y):
+        pix_x = self.x0 - (cnc_x/self.xscale)
+        pix_y = self.y0 + (cnc_y/self.yscale)
+        return int(pix_x), int(pix_y)
+
     #go to z_base
     #get the angle gamma_x = atan(x,height_z),gamma_y = atan(y,height_z)
     #G38.2 X#x Y#y Z#min_limit
@@ -288,6 +274,7 @@ class CncDriver():
             jump_y = jump    
         else:
             raise Exception("Wrong Input")      
+
         self.cnc_s.poll()        
         self.probe_to(z=self.z_hard_min)
         x0,y0,z0 = self.get_probed_position()
@@ -375,16 +362,39 @@ class CncDriver():
         phi_deg = math.degrees(phi)
         self.rotate_xy_system(phi_deg)
 
-
         return self.find_inner_circle_center()
+
+    def scan_xy(self, x_start, x_end, y_start, y_end, step_x = 10, step_y = 10):
+        z_min = self.z_hard_min
+        z_max = self.z_base
+        o_code = "o<smartprobe> call [{}] [{}] [{}] [{}] [{}] [{}] [{}] [{}]" \
+        .format(x_start,x_end,y_start,y_end,step_x,step_y, z_max, z_min)
+        print(o_code)
+        self.execute_gcode(o_code)   
+
+    def scan_xy_line(self, pt0, pt1, step = 2):
+        x0 = pt0[0]
+        y0 = pt0[1]
+        x1 = pt1[0]
+        y1 = pt1[1]
+
+        dx = x1 - x0
+        dy = y1 - y0
+        k = dy/dx
+        q = y0 - k*x0
+        step_x = math.sqrt((step**2)/(k**2+1))
+        ### TODO Finish scan routine
+        y_next =k*(x0+2) + q
+        y_next2 =k*(x0+4) + q
+        #print(y0,y_next, y_next2)   
+        #print(step_x)  
 
 
 
 #Just for testing
 def main():
     c = CncDriver()
-    c.probe_down()
-    
+    c.scan_xy(10,30,10,30)
 
 if __name__ == "__main__":
     main()

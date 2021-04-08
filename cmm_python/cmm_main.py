@@ -2,20 +2,24 @@ import cv2
 from cmm import Ui_MainWindow
 
 from PyQt5 import QtWidgets, QtCore
-from PyQt5.QtWidgets import  QWidget, QLabel, QApplication
-from PyQt5.QtCore import QThread, Qt, pyqtSignal, pyqtSlot
-from PyQt5.QtGui import QImage, QPixmap
+# from PyQt5.QtWidgets import  QWidget, QLabel, QApplication
+# from PyQt5.QtCore import QThread, Qt, pyqtSignal, pyqtSlot
+# from PyQt5.QtGui import QImage, QPixmap
+
+from PyQt5.QtWidgets import *
+from PyQt5.QtCore import *
+from PyQt5.QtGui import *
 from enum import Enum
 import imageHandler
 import linuxcnc_driver
 import common
 from database import CMM_Db
-
+import time
+import numpy as np
 import matplotlib
 matplotlib.use('Qt5Agg')
 
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
-#from matplotlib.figure import Figure
 
 
 class State(Enum):
@@ -26,6 +30,7 @@ class State(Enum):
     Move = 9
     Reference_Z = 10
     Draw = 15
+    SelectPoints = 20
 
 class Thread(QThread):
     state = State.CalibrateCamera
@@ -48,7 +53,7 @@ class Thread(QThread):
                 continue
             
 
-            self.win.update()
+            #self.win.update()
             
             if True:
                 # https://stackoverflow.com/a/55468544/6622587
@@ -69,22 +74,33 @@ class Thread(QThread):
                 
                 elif self.win.state == State.SelectOrigin:
                     self.win.ui.instructionLabel.setText("Select [0,0] origin")
-                    if imageHandler.addPoint(imageHandler.cnc_origin) == 1: 
+                    if len(imageHandler.points_struct) != 0:
+                        imageHandler.setOrigin() 
                         self.win.set_camera_scale()
-                        self.win.state = State.Reference_Z
+                        self.win.state = State.SelectPoints
+                        self.win.ui.instructionLabel.setText("Machine is ready")
                 
-                # elif  self.win.state == State.CameraReady:
-                #     self.win.state = State.Move #temporary       
-                
-                elif self.win.state == State.Reference_Z:
-                    self.win.ui.instructionLabel.setText("Select point for Z reference a hit reference Z")
-                    if imageHandler.addPoint(imageHandler.points2move) == 1: 
-                        pass
 
-                elif self.win.state == State.Move:
-                    self.win.ui.instructionLabel.setText("Select point for probing")
-                    if imageHandler.addPoint(imageHandler.points2move) == 1: 
-                        pass 
+                elif self.win.state == State.SelectPoints or \
+                self.win.state == State.Draw:
+                    pix_x, pix_y = self.win.driver.cnc_to_camera(self.win.x_act,self.win.y_act)
+                    imageHandler.actual_position = [pix_x, pix_y]
+                # elif  self.win.state == State.CameraReady:
+                #     self.win.state = State.Move #temporary  
+                # 
+                # elif self.win.state == State.Draw:
+                #     pass
+                
+                # elif self.win.state == State.SelectPoints:
+                #     self.win.ui.instructionLabel.setText("Select point for Z reference a hit reference Z")
+                
+                # elif self.win.state == State.Reference_Z:
+                #     self.win.ui.instructionLabel.setText("Select point for Z reference a hit reference Z")
+                    
+
+                # elif self.win.state == State.Move:
+                #     self.win.ui.instructionLabel.setText("Select point for probing")
+                    
                             
                 
                 final_pic = imageHandler.updateImage(orig_img)
@@ -107,19 +123,17 @@ class MainWindow(QtWidgets.QMainWindow):
         super(MainWindow, self).__init__(parent=parent)
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
-        self.initUI()
+        self.set_up_dictionary()
+        self.init_ui()
         self.state = State.CalibrateCamera
-        self.driver = linuxcnc_driver.CncDriver()
-        self.db = CMM_Db()
+        self.driver = linuxcnc_driver.CncDriver(wait_func=self.wait)
+        self.db = CMM_Db()        
 
-        
-        
-    
     @pyqtSlot(QImage)
-    def setImage(self, image):
+    def set_image(self, image):
         self.label.setPixmap(QPixmap.fromImage(image))   
 
-    def initUI(self):
+    def init_ui(self):
         self.setWindowTitle("Win")
         #self.setGeometry(self.left, self.top, self.width, self.height)
         self.resize(1200, 800)
@@ -129,49 +143,59 @@ class MainWindow(QtWidgets.QMainWindow):
         self.label.resize(640, 480)
         self.label.setMouseTracking(True)
         self.label.installEventFilter(self)
-        self.ui.enterDimensionsButton.clicked.connect(self.processDimensions)
+        self.ui.enterDimensionsButton.clicked.connect(self.process_dimensions)
         self.ui.moveButton.clicked.connect(self.move)
         self.ui.referenceZ.clicked.connect(self.reference_z)
-        self.initComboBox()
+        self.ui.startButton.clicked.connect(self.start)
+        self.ui.clearPointsButton.clicked.connect(self.clear_points)
+        self.init_combo_box()
         self.selectedPoints = []
         self.th = Thread(self)
-        self.th.changePixmap.connect(self.setImage)
+        self.th.changePixmap.connect(self.set_image)
         self.th.start()
+        timer = QTimer(self)
+        timer.timeout.connect(self.update)
+        timer.start(50)
 
         self.addToolBar(NavigationToolbar(self.ui.plotWidget.canvas,self))
-        #self.ui.plotWidget = MplWidget(self.centralWidget)
-        # self.plotLabel.setGeometry(QtCore.QRect(20, 250, 821, 591))
-        # self.plotLabel.setObjectName("plotWidget")
         self.show()    
 
     def eventFilter(self, source, event):
         t = event.type()
+        
         if t == QtCore.QEvent.MouseMove or t== QtCore.QEvent.MouseButtonPress or t== QtCore.QEvent.MouseButtonRelease :
             if self.state == State.Draw:
                 imageHandler.object_drawing_qt(event,event.x(), event.y())
             else:
                 imageHandler.click(event,event.x(), event.y())
-            
+        
         return super(MainWindow, self).eventFilter(source, event)
 
     def keyPressEvent(self, event):
         self.th.key = event.key()
         event.accept()
 
-    def initComboBox(self):
-        self.ui.comboBox.addItem("Find inner hole center")
-        self.ui.comboBox.addItem("Find outer hole center")        
-        self.ui.comboBox.addItem("Find inner rectangle center")        
-        self.ui.comboBox.addItem("Find multiple holes positions")        
-        self.ui.comboBox.addItem("Scan XY")        
-        self.ui.comboBox.addItem("Scan circumference")        
-        self.ui.comboBox.addItem("Circularity")        
-        self.ui.comboBox.addItem("Cylindarity")                 
-        
-    def processDimensions(self):
+    def init_combo_box(self):
+        for key in self.op_dictionary:
+            self.ui.comboBox.addItem(key)    
+                   
+
+    def set_up_dictionary(self):
+        self.op_dictionary = {
+
+            "Find inner hole position" : self.find_inner_position,
+            "Find outer hole position" : self.find_inner_position,
+            "Find inner rectangle position" : self.find_inner_position,
+            "Scan XY"  : self.scan_xy,
+            "Scan circumference"   : self.scan_xy,
+            "Circularity"   : self.scan_xy,
+            "Cylindarity" :  self.scan_xy,
+            "Straightness"  : self.scan_line
+        }
+
+    def process_dimensions(self):
         if self.state != State.GetParams:
             return
-        
         try:
             self.calib_width = float(self.ui.widthInput.text())
             self.calib_height = float(self.ui.heightInput.text())
@@ -194,46 +218,98 @@ class MainWindow(QtWidgets.QMainWindow):
         self.driver.set_camera_scale(x0,y0,scale_x,scale_y)
         camera_home_x, camera_home_y =  self.driver.camera_to_cnc(imageHandler.updateImage.center_x,imageHandler.updateImage.center_y)
         self.driver.set_camera_home(camera_home_x,camera_home_y)
-        
+
+    def clear_points(self):
+        imageHandler.points_struct = []
+    
+    def start(self):
+        func = self.ui.comboBox.currentText()
+        self.op_dictionary[func](func)
+
+    def wait(self,ms = 100):
+        loop = QEventLoop()
+        QTimer.singleShot(ms, loop.quit)
+        loop.exec_()
+
+    ###########
+    # ACTIONS #
+    ###########
     def move(self):
-        if self.state.value < State.CameraReady.value:
-            print("Camera not ready")
-            return
-        x,y = imageHandler.points2move[0][0],imageHandler.points2move[0][1]
-        imageHandler.updateImage.pause_updates = True
-        self.driver.probe_in_camera_z_perspective(x,y)
+        mask  = cv2.cvtColor(imageHandler.layers[imageHandler.layer],cv2.COLOR_BGR2GRAY)
+        print(np.count_nonzero(mask) != 0)
     
     def reference_z(self):
-        if self.state.value < State.CameraReady.value:
-            print("Camera not ready")
-            return
-        x,y = imageHandler.points2move[0][0],imageHandler.points2move[0][1]
+        # if self.state.value < State.CameraReady.value:
+        #     print("Camera not ready")
+        #     return
+        self.ui.instructionLabel.setText("Select point for Z reference a hit reference Z")
+        
+        while len(imageHandler.points_struct) == 0:
+            self.wait()
+       
+        x,y = imageHandler.points_struct[0][0],imageHandler.points_struct[0][1]
         imageHandler.updateImage.pause_updates = True
         self.driver.probe_in_camera_z_perspective(x,y)
         
         self.driver.cnc_s.poll()
-        self.reference_z = self.driver.cnc_s.probed_position[2]
-
+        self.z_ref = self.driver.cnc_s.probed_position[2]
+        self.clear_points()
         print("Probing done")
-        print("Z height: {}".format(self.reference_z))
-        self.state = State.Move
-    
-    def start(self):
-        pass
+        print("Z height: {}".format(self.z_ref))
 
-    def find_center(self):
-        x,y = self.driver.camera_to_cnc(imageHandler.points2move[0][0],imageHandler.points2move[0][1])
-        imageHandler.updateImage.pause_updates = True
+
+    def find_inner_position(self,func_text):
+        self.reference_z()
+        self.ui.instructionLabel.setText("Select position")
+        while len(imageHandler.points_struct) == 0:
+            self.wait()
+        x,y = self.driver.camera_to_cnc(imageHandler.points_struct[0][0],imageHandler.points_struct[0][1])
+        
         self.driver.move_to(x=x,y=y,feedrate=1000)
-        self.driver.move_to(z=(self.reference_z-self.driver.probe_tip_diam),feedrate=1000)
-        self.driver.find_hole_center()
+        self.driver.move_to(z=(self.z_ref-self.driver.probe_tip_diam),feedrate=1000)
+        if "hole" in func_text:
+            print("Holing")
+            return self.driver.find_inner_circle_center()
+        elif "rectangle" in func_text:
+            print("Rectangling")
+            return self.driver.find_inner_rectangle_center()
+        else:
+            raise Exception("Unkown shape")
 
+    def scan_xy(self, func_text):
+        self.state = State.Draw
+        self.ui.instructionLabel.setText("Draw area to scan")
+        mask  = cv2.cvtColor(imageHandler.layers[imageHandler.layer],cv2.COLOR_BGR2GRAY)
+        while np.count_nonzero(mask) == 0:
+            mask  = cv2.cvtColor(imageHandler.layers[imageHandler.layer],cv2.COLOR_BGR2GRAY)
+            self.wait()
+        print("here")
+        ind = np.argwhere(mask == np.amax(mask))
+        y_ind = ind[:,0] 
+        x_ind = ind[:,1]
+        x_min = np.min(x_ind, axis=None)
+        x_max = np.max(x_ind, axis=None)
+        y_min = np.min(y_ind, axis=None)
+        y_max = np.max(y_ind, axis=None)
+        x_min, y_min = self.driver.camera_to_cnc(x_max, y_min) #Watch out, xmax <--> xmin is switched, image is reversed 
+        x_max, y_max = self.driver.camera_to_cnc(x_min, y_max) #Watch out, xmax <--> xmin is switched, image is reversed 
+        print(x_min, x_max, y_min, y_max)
+        self.driver.scan_xy(x_min,x_max,y_min, y_max)
+
+    def scan_line(self, func_text):
+        self.state = State.SelectPoints
+        self.ui.instructionLabel.setText("Select end points")
+        while len(imageHandler.points_struct) != 2:
+            self.wait()
+        pt0 = self.driver.camera_to_cnc(imageHandler.points_struct[0][0],imageHandler.points_struct[0][1])
+        pt1 = self.driver.camera_to_cnc(imageHandler.points_struct[1][0],imageHandler.points_struct[1][1])
+        self.driver.scan_xy_line(pt0,pt1)
 
     def update(self):
-        x_act, y_act, z_act = self.driver.get_actual_position()
-        self.ui.xDro.setText("{:.3f}".format(x_act))
-        self.ui.yDro.setText("{:.3f}".format(y_act))
-        self.ui.zDro.setText("{:.3f}".format(z_act))
+        self.x_act, self.y_act, self.z_act = self.driver.get_actual_position()
+        self.ui.xDro.setText("{:.3f}".format(self.x_act))
+        self.ui.yDro.setText("{:.3f}".format(self.y_act))
+        self.ui.zDro.setText("{:.3f}".format(self.z_act))
 
         self.driver.read_error_channel()
 
@@ -265,6 +341,8 @@ class MainWindow(QtWidgets.QMainWindow):
             imageHandler.delete_current_layer()  
         elif key == ord('H'):
             imageHandler.updateImage.printHelp = not imageHandler.updateImage.printHelp 
+        elif key == ord('J'):
+            self.state = State.Draw 
         return 0    
         
 
