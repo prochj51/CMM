@@ -20,19 +20,19 @@ F400    (probe speed)
 ; #2 = 50
 ; #3 = 10
 ; #4 = 50
+; #5 = 2
+; #6 = 2
 
-
-#<incrementx>= 2 (X increment)
-#<incrementy>=2 (Y increment)
+#<incrementx>= #5 (X increment)
+#<incrementy>= #6 (Y increment)
 #<xcount> = [fix[[#2-#1]/#<incrementx>]+1]
 #<ycount> = [fix[[#4-#3]/#<incrementy>]+1]
-(debug,xcount #<xcount>)
-(debug,ycount #<ycount>)
-#7=0 (Z safety)
-#8=-50 (Z probe)
+(debug,#<incrementx>)
+;#7=0 (Z safety)
+;#8=-50 (Z probe)
 (End configuration section)
 
-(LOGOPEN,probe-results.ngc)
+(LOGOPEN,probe_results.txt)
 #9=0 #10=0
 G0Z#7
 O1 while [#9 lt #<ycount>]
@@ -52,10 +52,8 @@ O1 while [#9 lt #<ycount>]
         O4 endwhile
 
         G38.2Z#8 ; G38.2 - probe toward workpiece, stop on contact, signal error if failure
-        (debug,G1 X#5061 Y#5062 Z#5063)
-
         G38.5 z#7 ;G38.5 probe away from workpiece, stop on loss of contact 
-        (debug,G1 X#5061 Y#5062 Z#5063)
+        (LOG,X#5061 Y#5062 Z#5063)
         #10=[#10+1]
     O2 endwhile
     G0Z#7

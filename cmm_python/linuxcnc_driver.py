@@ -380,12 +380,29 @@ class CncDriver():
 
         dx = x1 - x0
         dy = y1 - y0
-        k = dy/dx
+        rev = True if dy > dx else False 
+        if rev:
+            dx, dy = processor.reverse(dx,dy)
+            x0, y0 = processor.reverse(x0,y0)
+            x1, y1 = processor.reverse(x1,y1)
+            
+        k = float(dy)/float(dx)
         q = y0 - k*x0
-        step_x = math.sqrt((step**2)/(k**2+1))
+        step_x = math.sqrt(float(step**2)/float(k**2+1))
         ### TODO Finish scan routine
-        y_next =k*(x0+2) + q
-        y_next2 =k*(x0+4) + q
+        
+        x = x0
+        print(rev, k, q)
+        while abs(x - x1) > step :
+            y = k*x + q
+            x_m = y if rev else x
+            y_m = x if rev else y
+            self.move_to(x=x_m,y=y_m)
+            self.probe_down()
+            p_x, p_y, p_z = self.get_probed_position()
+            self.move_to(z = p_z + 3)
+            x = x + step_x
+
         #print(y0,y_next, y_next2)   
         #print(step_x)  
 
@@ -394,7 +411,7 @@ class CncDriver():
 #Just for testing
 def main():
     c = CncDriver()
-    c.scan_xy(10,30,10,30)
+    c.scan_xy_line([10,20],[10,40])
 
 if __name__ == "__main__":
     main()
