@@ -5,6 +5,7 @@ import sys
 import hal
 import math
 import processor
+#from qt5_graphics import Lcnc_3dGraphics
 
 class CncDriver():
     def __init__(self,wait_func = None):
@@ -26,7 +27,11 @@ class CncDriver():
         self.z_hard_min = self.cnc_s.joint[2]["min_position_limit"] 
         self.z_hard_max = self.cnc_s.joint[2]["max_position_limit"] 
         self.wait_func = wait_func
-        
+
+    def check_state(self):
+        self.cnc_c.state(linuxcnc.STATE_ESTOP_RESET)
+        self.cnc_c.state(linuxcnc.STATE_ON)
+        self.cnc_s.poll()    
         
     def ok_for_mdi(self):
         self.cnc_s.poll()
@@ -156,6 +161,12 @@ class CncDriver():
         cmd = self.append_coords_to_gcode(cmd, x = x,y = y, z = z, feedrate=feedrate)
         self.execute_gcode(cmd)    
 
+    def probe_away(self,x=None, y=None, z=None, feedrate=100):
+        cmd = 'G38.5'
+        cmd = self.append_coords_to_gcode(cmd, x = x,y = y, z = z, feedrate=feedrate)
+        self.execute_gcode(cmd)
+
+
     def get_actual_position(self, mach_coords = False):
         self.cnc_s.poll()
         x = self.cnc_s.actual_position[0]
@@ -176,6 +187,10 @@ class CncDriver():
         if not mach_coords and self.cnc_s.rotation_xy != 0:
             x, y = self.transform_coordinates(x,y,math.radians(self.cnc_s.rotation_xy))
         return x,y,z
+
+    def probe_tripped(self):
+        self.cnc_s.poll()
+        return self.cnc_s.probe_tripped
 
     def set_camera_scale(self,x0,y0, xscale, yscale):
         self.x0 = x0
@@ -372,7 +387,7 @@ class CncDriver():
         print(o_code)
         self.execute_gcode(o_code)   
 
-    def scan_xy_line(self, pt0, pt1, step = 2):
+    def scan_xy_line(self, pt0, pt1, step = 2, datalog = None):
         x0 = pt0[0]
         y0 = pt0[1]
         x1 = pt1[0]
@@ -389,7 +404,6 @@ class CncDriver():
         k = float(dy)/float(dx)
         q = y0 - k*x0
         step_x = math.sqrt(float(step**2)/float(k**2+1))
-        ### TODO Finish scan routine
         
         x = x0
         print(rev, k, q)
@@ -400,18 +414,223 @@ class CncDriver():
             self.move_to(x=x_m,y=y_m)
             self.probe_down()
             p_x, p_y, p_z = self.get_probed_position()
+            if datalog:
+                datalog.logProbe(p_x, p_y, p_z)
             self.move_to(z = p_z + 3)
             x = x + step_x
 
         #print(y0,y_next, y_next2)   
         #print(step_x)  
 
+    def scan_xy(self, datalog = None):
+        incr_x = 2
+        incr_y = 2
+        x_min = 10
+        x_max = 50
+        y_min = 10
+        y_max = 50
+        x_count = math.floor(x_max - x_min)/incr_x + 1
+        y_count = math.floor(y_max - y_min)/incr_y + 1
+        z_min = self.z_hard_min
+        z_max = self.z_base
+        ind_x = 0
+        ind_y = 0
 
+        while ind_y < y_count:
+            ind_x  = 0
+            self.move_to(y = (y_min + incr_y * ind_y) )
+
+            while ind_x < x_count:
+                if self.isclose(y_count - math.floor(y_count),0):
+                    x_m = x_min + incr_x*ind_x
+                else:    
+                    x_m = x_min + incr_x*(x_count - ind_x - 1)
+                probe_tripped = 1
+                while probe_tripped:
+                    self.probe_away(z = z_max)
+                    self.probe_to(x = x_m)
+                    probe_tripped = self.probe_tripped()
+
+                self.probe_to(z = z_min)
+                self.probe_away(z = z_max,feedrate=50)
+
+                #log value
+                x_p, y_p, z_p = self.get_probed_position()
+                if datalog:
+                    datalog.log(x_p,y_p,z_p)
+
+                ind_x = ind_x + 1
+
+            self.move_to(z = z_max)
+            ind_y = ind_y + 1    
+            
+    def scan_circumference(self,direction = -1):
+        cnt_max = 600
+        cnt = 0
+        incr = 2
+        state = 0 # 0 1 2 3
+        retract = 1
+        #direction = -1 #1 = from left, +1 = from right
+
+        if direction == -1:
+            self.find_rising_edge("xplus")
+        elif direction == 1:
+            self.find_rising_edge("xminus")
+        else:
+            print("Wrong input")
+            return
+        x0,y0 = self.get_probed_position()[:2]
+        while cnt < cnt_max :
+            #Check for state overflow
+            if state < 0:
+                state = 3
+            elif state > 3:
+                state = 0    
+
+            if state == 0:
+                print(state)
+                x_m = self.get_actual_position()[0] - direction*2*incr
+                self.probe_to(x=x_m)
+
+                # if probe was tripped, change probe direction
+                if self.probe_tripped() == 0:
+                    state = state - direction
+                    
+                #else just rectract and continue
+                else:
+                    #retract
+                    x_m = self.get_actual_position()[0] + direction*5*incr
+                    self.probe_away(x = x_m)
+                    x_m = self.get_actual_position()[0] + direction*retract
+                    self.move_to(x = x_m)
+                    
+                    #move in y
+                    y_m = self.get_actual_position()[1] + incr
+                    self.probe_to(y = y_m) 
+                    if self.probe_tripped() == 1:
+                        state = state + direction
+                        self.probe_away(y = self.y_hard_min)
+                        y_m = self.get_actual_position[1] - retract
+                        self.move_to(y = y_m)
+
+
+            elif state == 1:
+                print(state)
+
+                y_m = self.get_actual_position()[1] + direction*2*incr
+                self.probe_to(y=y_m)
+
+                # if probe was tripped, change probe direction
+                if self.probe_tripped() == 0:
+                    state = state - direction
+                #else just rectract and continue
+                else:
+                    #retract
+                    y_m = self.get_actual_position()[1] - direction*5*incr
+                    self.probe_away(y = y_m)
+                    y_m = self.get_actual_position()[1] - direction*retract
+                    self.move_to(y = y_m)
+
+                    #move in x
+                    x_m = self.get_actual_position()[0] + incr
+                    self.probe_to(x = x_m) 
+                    if self.probe_tripped() == 1:
+                        state = state + direction
+                        self.probe_away(x = self.x_hard_min)
+                        x_m = self.get_actual_position()[0] - retract
+                        self.move_to(x = x_m)
+
+            
+            elif state == 2:
+                print(state)
+
+                x_m = self.get_actual_position()[0] + direction*2*incr
+                self.probe_to(x=x_m)
+
+                # if probe was tripped, change probe direction
+                if self.probe_tripped() == 0:
+                    state = state - direction
+                #else just rectract and continue
+                else:
+                    #retract
+                    x_m = self.get_actual_position()[0] - direction*5*incr
+                    self.probe_away(x = x_m)
+                    x_m = self.get_actual_position()[0] - direction*retract
+                    self.move_to(x = x_m)
+
+                    #move in y
+                    y_m = self.get_actual_position()[1] - incr
+                    self.probe_to(y = y_m) 
+                    if self.probe_tripped() == 1:
+                        state = state + direction
+                        self.probe_away(y = self.y_hard_max)
+                        y_m = self.get_actual_position()[1] + retract
+                        self.move_to(y = y_m)
+            
+            else:
+                print(state)
+
+                y_m = self.get_actual_position()[1] - direction*2*incr
+                self.probe_to(y=y_m)
+
+                # if probe was tripped, change probe direction
+                if self.probe_tripped() == 0:
+                    state = state - direction
+                #else just rectract and continue
+                else:
+                    #retract
+                    y_m = self.get_actual_position()[1] + direction*5*incr
+                    self.probe_away(y = y_m)
+                    y_m = self.get_actual_position()[1] + direction*retract
+                    self.move_to(y = y_m)
+
+                    #move in x
+                    x_m = self.get_actual_position()[0] - incr
+                    self.probe_to(x = x_m) 
+                    if self.probe_tripped() == 1:
+                        state = state + direction
+                        self.probe_away(x = self.x_hard_min)
+                        x_m = self.get_actual_position()[0] + retract
+                        self.move_to(x = x_m)
+
+            cnt = cnt + 1
+
+            x_diff = abs(x0 - self.get_actual_position()[0])
+            y_diff = abs(y0 - self.get_actual_position()[1]) 
+
+            if x_diff < incr and y_diff < incr and cnt > 2:
+                break
+
+
+        print("Ended")        
+    # def scan_helper(self, m_dir = 'y', p_dir = 'x'):
+        
+    #     x_p = self.get_actual_position[0] - direction*2*incr
+    #     self.probe_to(x=x_p)
+
+    #     # if probe was tripped, change probe direction
+    #     if self.probe_tripped() == 0:
+    #         state = state - direction
+    #     #else just rectract and continue
+    #     else:
+    #         #retract
+    #         x_m = self.get_actual_position[0] + direction*5*incr
+    #         self.probe_away(x = x_m)
+    #         x_m = self.get_actual_position[0] + direction*retract
+    #         self.move_to(x = x_m)
+
+    #         #move in y
+    #         y_m = self.get_actual_position[1] + incr
+    #         self.probe_to(y = y_m) 
+    #         if self.probe_tripped() == 1:
+    #             state = state + direction
+    #             self.probe_away(y = self.y_hard_min)
+    #             y_m = self.get_actual_position[1] - retract
 
 #Just for testing
 def main():
     c = CncDriver()
-    c.scan_xy_line([10,20],[10,40])
+    c.scan_circumference(1)
 
 if __name__ == "__main__":
     main()
