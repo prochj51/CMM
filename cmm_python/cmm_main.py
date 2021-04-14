@@ -11,9 +11,10 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 from enum import Enum
 import imageHandler
-import linuxcnc_driver
+import linuxcnc_driver 
+from linuxcnc_driver import AbortException
 import common
-from database import CMM_Db
+from database import CmmDb, CmmDatalog
 import time
 import numpy as np
 import matplotlib
@@ -48,11 +49,9 @@ class Thread(QThread):
             else:
                 orig_img = imageHandler.updateImage.last_image0
             
-            
             if self.win is None:
                 continue
-            
-
+    
             #self.win.update()
             
             if True:
@@ -127,7 +126,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.init_ui()
         self.state = State.CalibrateCamera
         self.driver = linuxcnc_driver.CncDriver(wait_func=self.wait)
-        self.db = CMM_Db()        
+        self.db = CmmDb()
+        self.db.open()
+        self.confirmed = False
+        self.plot_id = ""
+        self.plot_op_name = "" 
+
 
     @pyqtSlot(QImage)
     def set_image(self, image):
@@ -144,19 +148,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.label.setMouseTracking(True)
         self.label.installEventFilter(self)
         self.ui.enterDimensionsButton.clicked.connect(self.process_dimensions)
-        self.ui.moveButton.clicked.connect(self.move)
+        self.ui.moveButton.clicked.connect(self.update_plot)
         self.ui.referenceZ.clicked.connect(self.reference_z)
         self.ui.startButton.clicked.connect(self.start)
         self.ui.clearPointsButton.clicked.connect(self.clear_points)
+        self.ui.confirmButton.clicked.connect(self.confirm)
+        self.ui.abortButton.clicked.connect(self.abort_action)
         self.init_combo_box()
         self.selectedPoints = []
         self.th = Thread(self)
         self.th.changePixmap.connect(self.set_image)
         self.th.start()
-        timer = QTimer(self)
-        timer.timeout.connect(self.update)
-        timer.start(50)
-
+        #CNC Update
+        timer1 = QTimer(self)
+        timer1.timeout.connect(self.update_cnc)
+        timer1.start(50)
+        #Plot update
+        timer2 = QTimer(self)
+        timer2.timeout.connect(self.update_plot)
+        timer2.start(200)
         self.addToolBar(NavigationToolbar(self.ui.plotWidget.canvas,self))
         self.show()    
 
@@ -219,11 +229,23 @@ class MainWindow(QtWidgets.QMainWindow):
         camera_home_x, camera_home_y =  self.driver.camera_to_cnc(imageHandler.updateImage.center_x,imageHandler.updateImage.center_y)
         self.driver.set_camera_home(camera_home_x,camera_home_y)
 
+    def create_datalog(self,db, op_name):
+        datalog = CmmDatalog(self.db)
+        id_m = datalog.logMeasurement(op_name)
+        self.plot_id = id_m
+        self.plot_op_name = op_name
+        return datalog
+
     def clear_points(self):
         imageHandler.points_struct = []
     
+    def confirm(self):
+        self.confirmed = True
+
     def start(self):
         func = self.ui.comboBox.currentText()
+        self.confirmed = False
+        self.driver.aborted = False
         self.op_dictionary[func](func)
 
     def wait(self,ms = 100):
@@ -231,13 +253,50 @@ class MainWindow(QtWidgets.QMainWindow):
         QTimer.singleShot(ms, loop.quit)
         loop.exec_()
 
+    def update_plot(self):
+        
+        if self.db.change_status == False:
+            return
+        data = self.db.get_probed_values(self.db.last_meas_id)
+        data = np.array(data)
+        if data.size == 0:
+            return
+        print("Drawing data")
+        x = data[:,0]
+        y = data[:,1]
+        z = data[:,2]
+        
+        self.ui.plotWidget.canvas.axes.clear()
+        
+        self.ui.plotWidget.plot_scatter(x,y,z,self.plot_id, self.plot_op_name)
+        self.ui.plotWidget.canvas.figure.canvas.draw()
+        self.ui.plotWidget.canvas.figure.canvas.flush_events()
+        
+        
+        self.db.change_status = False
+
+    def closeEvent(self, event):
+        self.db.close()
+        print("Closing ...")
+
+
+    def abort_action(self):
+        self.driver.abort()
+        
+
     ###########
     # ACTIONS #
     ###########
     def move(self):
-        mask  = cv2.cvtColor(imageHandler.layers[imageHandler.layer],cv2.COLOR_BGR2GRAY)
-        print(np.count_nonzero(mask) != 0)
-    
+        x = [1, 2, 3*self.counter, 4, 5]
+        y = [1, 2, 3, 4, 5]
+        z = [1, 2, 3, 4, 5]
+        self.ui.plotWidget.canvas.axes.clear()
+        self.ui.plotWidget.plotScatter(x,y,z)
+        self.ui.plotWidget.canvas.figure.canvas.draw()
+        self.ui.plotWidget.canvas.figure.canvas.flush_events()
+        self.counter = self.counter + 1
+
     def reference_z(self):
         # if self.state.value < State.CameraReady.value:
         #     print("Camera not ready")
@@ -249,8 +308,11 @@ class MainWindow(QtWidgets.QMainWindow):
        
         x,y = imageHandler.points_struct[0][0],imageHandler.points_struct[0][1]
         imageHandler.updateImage.pause_updates = True
-        self.driver.probe_in_camera_z_perspective(x,y)
-        
+        try:
+            self.driver.probe_in_camera_z_perspective(x,y)
+        except AbortException:
+            self.ui.instructionLabel.setText("Program was aborted")
+
         self.driver.cnc_s.poll()
         self.z_ref = self.driver.cnc_s.probed_position[2]
         self.clear_points()
@@ -267,45 +329,71 @@ class MainWindow(QtWidgets.QMainWindow):
         
         self.driver.move_to(x=x,y=y,feedrate=1000)
         self.driver.move_to(z=(self.z_ref-self.driver.probe_tip_diam),feedrate=1000)
-        if "hole" in func_text:
-            print("Holing")
-            return self.driver.find_inner_circle_center()
-        elif "rectangle" in func_text:
-            print("Rectangling")
-            return self.driver.find_inner_rectangle_center()
-        else:
-            raise Exception("Unkown shape")
+        try:
+            if "hole" in func_text:
+                print("Holing")
+                return self.driver.find_inner_circle_center()
+            elif "rectangle" in func_text:
+                print("Rectangling")
+                return self.driver.find_inner_rectangle_center()
+            else:
+                raise Exception("Unkown shape")
+        except AbortException:
+            self.ui.instructionLabel.setText("Program was aborted")
+            
 
     def scan_xy(self, func_text):
         self.state = State.Draw
-        self.ui.instructionLabel.setText("Draw area to scan")
-        mask  = cv2.cvtColor(imageHandler.layers[imageHandler.layer],cv2.COLOR_BGR2GRAY)
-        while np.count_nonzero(mask) == 0:
+        self.ui.instructionLabel.setText("Draw area to scan and hit confirm")
+        
+        while True:
+            
             mask  = cv2.cvtColor(imageHandler.layers[imageHandler.layer],cv2.COLOR_BGR2GRAY)
+            mask_exists =  np.count_nonzero(mask) != 0
+            
+            if self.confirmed == True:
+                if mask_exists:
+                    break
+                else:
+                    self.ui.instructionLabel.setText("No area selected")
+                    self.confirmed == False
+                
             self.wait()
-        print("here")
+        
+        datalog = self.create_datalog(self.db, "XY scan")
+        #datalog = None
+
         ind = np.argwhere(mask == np.amax(mask))
         y_ind = ind[:,0] 
         x_ind = ind[:,1]
-        x_min = np.min(x_ind, axis=None)
-        x_max = np.max(x_ind, axis=None)
-        y_min = np.min(y_ind, axis=None)
-        y_max = np.max(y_ind, axis=None)
-        x_min, y_min = self.driver.camera_to_cnc(x_max, y_min) #Watch out, xmax <--> xmin is switched, image is reversed 
-        x_max, y_max = self.driver.camera_to_cnc(x_min, y_max) #Watch out, xmax <--> xmin is switched, image is reversed 
+        x_pix_min = np.min(x_ind, axis=None)
+        x_pix_max = np.max(x_ind, axis=None)
+        y_pix_min = np.min(y_ind, axis=None)
+        y_pix_max = np.max(y_ind, axis=None)
+        
+        x_min, y_min = self.driver.camera_to_cnc(x_pix_max, y_pix_min) #Watch out, xmax <--> xmin is switched, image is reversed 
+        x_max, y_max = self.driver.camera_to_cnc(x_pix_min, y_pix_max) #Watch out, xmax <--> xmin is switched, image is reversed 
         print(x_min, x_max, y_min, y_max)
-        self.driver.scan_xy(x_min,x_max,y_min, y_max)
+        try:
+            self.driver.scan_xy(x_min,x_max,y_min, y_max, datalog=datalog)
+        except AbortException:
+            self.ui.instructionLabel.setText("Program was aborted")
 
     def scan_line(self, func_text):
-        self.state = State.SelectPoints
+        self.state = State.SelectPoints 
         self.ui.instructionLabel.setText("Select end points")
+        datalog = self.create_datalog(self.db, "Line scan")
+
         while len(imageHandler.points_struct) != 2:
             self.wait()
         pt0 = self.driver.camera_to_cnc(imageHandler.points_struct[0][0],imageHandler.points_struct[0][1])
         pt1 = self.driver.camera_to_cnc(imageHandler.points_struct[1][0],imageHandler.points_struct[1][1])
-        self.driver.scan_xy_line(pt0,pt1)
+        try:    
+            self.driver.scan_xy_line(pt0,pt1, datalog=datalog)
+        except AbortException:
+            self.ui.instructionLabel.setText("Program was aborted")
 
-    def update(self):
+    def update_cnc(self):
         self.x_act, self.y_act, self.z_act = self.driver.get_actual_position()
         self.ui.xDro.setText("{:.3f}".format(self.x_act))
         self.ui.yDro.setText("{:.3f}".format(self.y_act))

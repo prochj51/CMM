@@ -13,13 +13,18 @@ class MplWidget(QWidget):
         self.canvas = Canvas(Figure())                  # Create canvas object
         self.canvas.axes = self.canvas.figure.gca(projection='3d')
         #self.canvas.axes.contour3D(X, Y, Z, 50, cmap='binary')
-        self.canvas.axes.set_xlabel('x')
-        self.canvas.axes.set_ylabel('y')
-        self.canvas.axes.set_zlabel('z')
+        
         
         self.vbl = QVBoxLayout()         # Set box for plotting
         self.vbl.addWidget(self.canvas)
         self.setLayout(self.vbl)
 
-    def plotScatter(self,X,Y,Z):    
+    def plot_scatter(self,X,Y,Z, id_m = "", op_name = ""):    
         self.canvas.axes.scatter3D(X,Y,Z)
+        title = str(id_m) + ', ' + op_name
+        self.canvas.axes.set_title(title)
+        self.canvas.axes.set_xlabel('x')
+        self.canvas.axes.set_ylabel('y')
+        self.canvas.axes.set_zlabel('z') 
+        #self.canvas.axes.view_init(elev=90, azim=-90)
+      

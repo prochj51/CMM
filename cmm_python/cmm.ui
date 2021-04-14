@@ -51,6 +51,20 @@ max-height:40px;
            </widget>
           </item>
           <item>
+           <widget class="QPushButton" name="confirmButton">
+            <property name="text">
+             <string>Confirm</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="abortButton">
+            <property name="text">
+             <string>Abort</string>
+            </property>
+           </widget>
+          </item>
+          <item>
            <widget class="QFrame" name="horizontalFrame">
             <layout class="QHBoxLayout" name="horizontalLayout_5">
              <item>

@@ -5,7 +5,14 @@ import sys
 import hal
 import math
 import processor
-#from qt5_graphics import Lcnc_3dGraphics
+
+class AbortException(Exception):
+    def __init__(self):
+        pass
+
+    def __str__(self):
+        s = 'Program aborted'
+        return s
 
 class CncDriver():
     def __init__(self,wait_func = None):
@@ -27,6 +34,7 @@ class CncDriver():
         self.z_hard_min = self.cnc_s.joint[2]["min_position_limit"] 
         self.z_hard_max = self.cnc_s.joint[2]["max_position_limit"] 
         self.wait_func = wait_func
+        self.aborted = False
 
     def check_state(self):
         self.cnc_c.state(linuxcnc.STATE_ESTOP_RESET)
@@ -64,6 +72,12 @@ class CncDriver():
     def isclose(self, a, b, rel_tol=1e-09, abs_tol=0.0):
         return abs(a-b) <= max(rel_tol * max(abs(a), abs(b)), abs_tol)
 
+    def abort(self):
+        self.aborted = True
+        self.cnc_c.abort()
+        self.cnc_c.wait_complete()
+        
+
     def append_coords_to_gcode(self,cmd,x=None, y=None, z=None, feedrate=None):
         if x is not None:
             cmd += 'X{0:f} '.format(x)
@@ -92,12 +106,13 @@ class CncDriver():
         while self.cnc_s.interp_state != linuxcnc.INTERP_IDLE :
             #if self.error_poll() == -1:
                 #return -1
-            if self.wait_func is not None:
+            if self.wait_func:
                     self.wait_func() #Added so other process is not stalled
             else:
                 self.cnc_c.wait_complete()
             self.cnc_s.poll()
         self.cnc_c.wait_complete()
+        self.check_for_abort()
     
     def transform_coordinates(self,x,y,phi):
         x_new = x / math.cos(phi) + (y-x*math.tan(phi))*math.sin(phi)
@@ -156,12 +171,12 @@ class CncDriver():
             self.execute_gcode("G90")
 
 
-    def probe_to(self,x=None, y=None, z=None, feedrate=100):
+    def probe_to(self,x=None, y=None, z=None, feedrate=400):
         cmd = 'G38.3'
         cmd = self.append_coords_to_gcode(cmd, x = x,y = y, z = z, feedrate=feedrate)
         self.execute_gcode(cmd)    
 
-    def probe_away(self,x=None, y=None, z=None, feedrate=100):
+    def probe_away(self,x=None, y=None, z=None, feedrate=400):
         cmd = 'G38.5'
         cmd = self.append_coords_to_gcode(cmd, x = x,y = y, z = z, feedrate=feedrate)
         self.execute_gcode(cmd)
@@ -197,12 +212,15 @@ class CncDriver():
         self.y0 = y0
         self.xscale = xscale
         self.yscale = yscale
+        
         print("Scale was set")
 
 
     def camera_to_cnc(self,pix_x,pix_y):
         cnc_x = self.xscale*(self.x0 - pix_x)
         cnc_y = self.yscale*(pix_y - self.y0)
+        print("Scales", self.xscale, self.yscale)
+        print("Origin", self.x0, self.y0)
         return cnc_x, cnc_y
     
     def cnc_to_camera(self,cnc_x,cnc_y):
@@ -210,6 +228,12 @@ class CncDriver():
         pix_y = self.y0 + (cnc_y/self.yscale)
         return int(pix_x), int(pix_y)
 
+
+    def check_for_abort(self):
+        if self.aborted == True:
+            self.aborted = False
+            raise AbortException() 
+        
     #go to z_base
     #get the angle gamma_x = atan(x,height_z),gamma_y = atan(y,height_z)
     #G38.2 X#x Y#y Z#min_limit
@@ -273,7 +297,7 @@ class CncDriver():
 
         #move bit back
         self.move_to(x=clearance_vec[0], y=clearance_vec[1], z=clearance_vec[2], rel = True)
-
+        
         return self.get_probed_position()[:2]
 
     def find_falling_edge(self,dir,jump=2):
@@ -304,7 +328,8 @@ class CncDriver():
             self.cnc_s.poll()
             probe_success = self.cnc_s.probe_tripped
             indx = indx + 1
-
+                
+            
         dir_opp = self.get_opposite_direction(dir)
         x, y, z = self.find_rising_edge(dir_opp)
         self.move_to(x = (x0+indx*jump_x),y = (y0+indx*jump_y))
@@ -320,9 +345,9 @@ class CncDriver():
         return (probe_max+probe_min)/2
 
   
-    def find_inner_circle_center(self):
+    def find_inner_circle_center(self, datalog = None):
         self.cnc_s.poll()
-        x0,y0 = self.get_actual_position()[:2]
+        x0,y0,z0 = self.get_actual_position()
         x_plus = self.find_rising_edge("xplus")[0]
         self.move_to(x=x0)
         x_minus = self.find_rising_edge("xminus")[0]        
@@ -333,6 +358,9 @@ class CncDriver():
         y_minus = self.find_rising_edge("yminus")[1]
         y_center = (y_plus+y_minus)/2 
         self.move_to(y=y_center)
+
+        if datalog:
+            datalog.logProbe(x_center, y_center, z0)
         
         return x_center,y_center
 
@@ -379,7 +407,7 @@ class CncDriver():
 
         return self.find_inner_circle_center()
 
-    def scan_xy(self, x_start, x_end, y_start, y_end, step_x = 10, step_y = 10):
+    def scan_xy_ocode(self, x_start, x_end, y_start, y_end, step_x = 10, step_y = 10, datalog = None):
         z_min = self.z_hard_min
         z_max = self.z_base
         o_code = "o<smartprobe> call [{}] [{}] [{}] [{}] [{}] [{}] [{}] [{}]" \
@@ -422,20 +450,21 @@ class CncDriver():
         #print(y0,y_next, y_next2)   
         #print(step_x)  
 
-    def scan_xy(self, datalog = None):
-        incr_x = 2
-        incr_y = 2
-        x_min = 10
-        x_max = 50
-        y_min = 10
-        y_max = 50
+    def scan_xy(self, x_min,x_max, y_min, y_max, incr_x = 2, incr_y = 2, datalog = None):
+        # incr_x = 2
+        # incr_y = 2
+        # x_min = 10
+        # x_max = 50
+        # y_min = 10
+        # y_max = 50
         x_count = math.floor(x_max - x_min)/incr_x + 1
         y_count = math.floor(y_max - y_min)/incr_y + 1
         z_min = self.z_hard_min
         z_max = self.z_base
         ind_x = 0
         ind_y = 0
-
+        self.move_to(x = x_min, y = y_min, z = z_max)
+        print("Counts",x_count,y_count)
         while ind_y < y_count:
             ind_x  = 0
             self.move_to(y = (y_min + incr_y * ind_y) )
@@ -445,6 +474,7 @@ class CncDriver():
                     x_m = x_min + incr_x*ind_x
                 else:    
                     x_m = x_min + incr_x*(x_count - ind_x - 1)
+                print("Next x_m", x_m)    
                 probe_tripped = 1
                 while probe_tripped:
                     self.probe_away(z = z_max)
@@ -452,19 +482,22 @@ class CncDriver():
                     probe_tripped = self.probe_tripped()
 
                 self.probe_to(z = z_min)
-                self.probe_away(z = z_max,feedrate=50)
+                self.probe_away(z = z_max,feedrate=300)
 
                 #log value
                 x_p, y_p, z_p = self.get_probed_position()
                 if datalog:
-                    datalog.log(x_p,y_p,z_p)
+                    datalog.logProbe(x_p,y_p,z_p)
 
                 ind_x = ind_x + 1
+                print("Count_x", ind_x)
 
             self.move_to(z = z_max)
-            ind_y = ind_y + 1    
+            ind_y = ind_y + 1
+            print("Count_y", ind_y)
+
             
-    def scan_circumference(self,direction = -1):
+    def scan_circumference(self,direction = -1, datalog = None):
         cnt_max = 600
         cnt = 0
         incr = 2
@@ -492,7 +525,7 @@ class CncDriver():
                 x_m = self.get_actual_position()[0] - direction*2*incr
                 self.probe_to(x=x_m)
 
-                # if probe was tripped, change probe direction
+                # if probe was not tripped, change probe direction
                 if self.probe_tripped() == 0:
                     state = state - direction
                     
@@ -500,7 +533,9 @@ class CncDriver():
                 else:
                     #retract
                     x_m = self.get_actual_position()[0] + direction*5*incr
-                    self.probe_away(x = x_m)
+                    self.probe_away(x = x_m,feedrate=50)
+                    if datalog:
+                        datalog.logProbe(self.get_probed_position())
                     x_m = self.get_actual_position()[0] + direction*retract
                     self.move_to(x = x_m)
                     
@@ -528,6 +563,8 @@ class CncDriver():
                     #retract
                     y_m = self.get_actual_position()[1] - direction*5*incr
                     self.probe_away(y = y_m)
+                    if datalog:
+                        datalog.logProbe(self.get_probed_position())
                     y_m = self.get_actual_position()[1] - direction*retract
                     self.move_to(y = y_m)
 
@@ -555,6 +592,8 @@ class CncDriver():
                     #retract
                     x_m = self.get_actual_position()[0] - direction*5*incr
                     self.probe_away(x = x_m)
+                    if datalog:
+                        datalog.logProbe(self.get_probed_position())
                     x_m = self.get_actual_position()[0] - direction*retract
                     self.move_to(x = x_m)
 
@@ -581,6 +620,8 @@ class CncDriver():
                     #retract
                     y_m = self.get_actual_position()[1] + direction*5*incr
                     self.probe_away(y = y_m)
+                    if datalog:
+                        datalog.logProbe(self.get_probed_position())
                     y_m = self.get_actual_position()[1] + direction*retract
                     self.move_to(y = y_m)
 
@@ -603,29 +644,7 @@ class CncDriver():
 
 
         print("Ended")        
-    # def scan_helper(self, m_dir = 'y', p_dir = 'x'):
-        
-    #     x_p = self.get_actual_position[0] - direction*2*incr
-    #     self.probe_to(x=x_p)
-
-    #     # if probe was tripped, change probe direction
-    #     if self.probe_tripped() == 0:
-    #         state = state - direction
-    #     #else just rectract and continue
-    #     else:
-    #         #retract
-    #         x_m = self.get_actual_position[0] + direction*5*incr
-    #         self.probe_away(x = x_m)
-    #         x_m = self.get_actual_position[0] + direction*retract
-    #         self.move_to(x = x_m)
-
-    #         #move in y
-    #         y_m = self.get_actual_position[1] + incr
-    #         self.probe_to(y = y_m) 
-    #         if self.probe_tripped() == 1:
-    #             state = state + direction
-    #             self.probe_away(y = self.y_hard_min)
-    #             y_m = self.get_actual_position[1] - retract
+    
 
 #Just for testing
 def main():
