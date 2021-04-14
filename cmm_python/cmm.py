@@ -138,6 +138,7 @@ class Ui_MainWindow(object):
         self.right = QtWidgets.QVBoxLayout(self.rightVerticalFrame)
         self.right.setObjectName("right")
         self.plotWidget = MplWidget(self.rightVerticalFrame)
+        self.plotWidget.setMinimumSize(QtCore.QSize(0, 350))
         self.plotWidget.setObjectName("plotWidget")
         self.right.addWidget(self.plotWidget)
         self.cvlabel = QtWidgets.QLabel(self.rightVerticalFrame)
