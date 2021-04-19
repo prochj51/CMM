@@ -193,9 +193,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def set_up_dictionary(self):
         self.op_dictionary = {
 
-            "Find inner hole position" : self.find_inner_position,
-            "Find outer hole position" : self.find_inner_position,
-            "Find inner rectangle position" : self.find_inner_position,
+            "Find inner hole position" : self.find_position,
+            "Find outer hole position" : self.find_position,
+            "Find inner rectangle position" : self.find_position,
             "Scan XY"  : self.scan_xy,
             "Scan circumference"   : self.scan_xy,
             "Circularity"   : self.scan_xy,
@@ -248,7 +248,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.driver.aborted = False
         self.op_dictionary[func](func)
 
-    def wait(self,ms = 100):
+    def wait(self,ms = 200):
         loop = QEventLoop()
         QTimer.singleShot(ms, loop.quit)
         loop.exec_()
@@ -298,18 +298,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.counter = self.counter + 1
 
     def reference_z(self):
-        # if self.state.value < State.CameraReady.value:
-        #     print("Camera not ready")
-        #     return
+    # if self.state.value < State.CameraReady.value:
+    #     print("Camera not ready")
+    #     return
         self.ui.instructionLabel.setText("Select point for Z reference a hit reference Z")
         
         while len(imageHandler.points_struct) == 0:
             self.wait()
-       
-        x,y = imageHandler.points_struct[0][0],imageHandler.points_struct[0][1]
+    
+        pix_x,pix_y = imageHandler.points_struct[0][0],imageHandler.points_struct[0][1]
         imageHandler.updateImage.pause_updates = True
         try:
-            self.driver.probe_in_camera_z_perspective(x,y)
+            self.driver.probe_in_camera_z_perspective(pix_x,pix_y)
+            
+            # x,y = self.driver.camera_to_cnc(pix_x,pix_y)
+            # self.driver.move_to(x = x, y = y)
+            # self.driver.probe_down()
         except AbortException:
             self.ui.instructionLabel.setText("Program was aborted")
 
@@ -318,28 +322,54 @@ class MainWindow(QtWidgets.QMainWindow):
         self.clear_points()
         print("Probing done")
         print("Z height: {}".format(self.z_ref))
+        return self.z_ref
 
 
-    def find_inner_position(self,func_text):
-        self.reference_z()
+    def find_position(self,func_text):
+        imageHandler.updateImage.pause_updates = True
+        if "inner" in func_text:
+            z = self.reference_z()
+        datalog = self.create_datalog(self.db, "Positions")
         self.ui.instructionLabel.setText("Select position")
-        while len(imageHandler.points_struct) == 0:
+        points = imageHandler.points_struct
+        while True:
+            if self.confirmed == True:
+                if len(points) != 0:
+                    break
+                else:
+                    self.ui.instructionLabel.setText("No points selected")
+                    self.confirmed == False
             self.wait()
-        x,y = self.driver.camera_to_cnc(imageHandler.points_struct[0][0],imageHandler.points_struct[0][1])
         
-        self.driver.move_to(x=x,y=y,feedrate=1000)
-        self.driver.move_to(z=(self.z_ref-self.driver.probe_tip_diam),feedrate=1000)
-        try:
-            if "hole" in func_text:
-                print("Holing")
-                return self.driver.find_inner_circle_center()
-            elif "rectangle" in func_text:
-                print("Rectangling")
-                return self.driver.find_inner_rectangle_center()
-            else:
-                raise Exception("Unkown shape")
-        except AbortException:
-            self.ui.instructionLabel.setText("Program was aborted")
+        for point in points:
+            pix_x,pix_y = point[0],point[1]
+            
+            try:
+                if "inner" in func_text:
+                    self.driver.move_in_camera_z_perspective(pix_x, pix_y, z=self.z_ref)
+                    self.driver.move_to(z=(self.z_ref-self.driver.probe_tip_diam),feedrate=1000)
+                    if "hole" in func_text:
+                        print("Holing")
+                        self.driver.find_inner_circle_center(datalog=datalog)
+                    elif "rectangle" in func_text:
+                        print("Rectangling")
+                        self.driver.find_inner_rectangle_center(datalog=datalog)
+                if "outer" in func_text:
+                    self.driver.probe_in_camera_z_perspective(pix_x, pix_y)
+                    self.driver.cnc_s.poll()
+                    self.z_ref = self.driver.cnc_s.probed_position[2]
+                    self.driver.move_to(z=(self.z_ref+self.driver.probe_tip_diam),feedrate=1000)
+                    if "hole" in func_text:
+                        print("Holing")
+                        self.driver.find_outer_circle_center(datalog=datalog)
+                    elif "rectangle" in func_text:
+                        print("Rectangling")
+                        self.driver.find_outer_circle_center(datalog=datalog)
+                else:
+                    raise Exception("Unkown shape")
+            except AbortException:
+                self.ui.instructionLabel.setText("Program was aborted")
+                return
             
 
     def scan_xy(self, func_text):

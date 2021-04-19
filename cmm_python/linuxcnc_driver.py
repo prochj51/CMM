@@ -238,8 +238,8 @@ class CncDriver():
     #get the angle gamma_x = atan(x,height_z),gamma_y = atan(y,height_z)
     #G38.2 X#x Y#y Z#min_limit
     #given pixel coordinates
-    def probe_in_camera_z_perspective(self,x,y):
-        x,y = self.camera_to_cnc(x,y)
+    def probe_in_camera_z_perspective(self,pix_x,pix_y):
+        x,y = self.camera_to_cnc(pix_x,pix_y)
         
         x_c = self.camera_home[0]
         y_c = self.camera_home[1]
@@ -257,6 +257,33 @@ class CncDriver():
         self.move_to(z=self.z_base)
         self.move_to(x=x0,y=y0)
         self.probe_to(x=x,y=y,z=self.z_hard_min)
+
+    def move_in_camera_z_perspective(self,pix_x,pix_y,z):
+        x,y = self.camera_to_cnc(pix_x,pix_y)
+        
+        x0, y0, kx, ky = self.prepare_camera_perspective(x,y)
+        z_d = self.z_base - z
+        x_g = x0 + kx*z_d       
+        y_g = y0 + ky*z_d       
+
+        #move to z_base        
+        self.move_to(z=self.z_base)
+        self.move_to(x=x0,y=y0)
+        self.move_to(x=x_g,y=y_g,z=z) 
+
+    def prepare_camera_perspective(self,x,y):
+        x_c = self.camera_home[0]
+        y_c = self.camera_home[1]
+        z_c = self.camera_home[2]
+        camera_heigth = z_c - self.z_hard_min
+        z_diff = z_c - self.z_base        
+        kx = (x-x_c)/camera_heigth
+        ky = (y-y_c)/camera_heigth
+        x0 = x_c + kx*z_diff
+        y0 = y_c + ky*z_diff
+
+        return x0, y0, kx, ky
+
 
     def get_opposite_direction(self,dir):
         if dir == 'xminus': 
@@ -331,7 +358,7 @@ class CncDriver():
                 
             
         dir_opp = self.get_opposite_direction(dir)
-        x, y, z = self.find_rising_edge(dir_opp)
+        x, y = self.find_rising_edge(dir_opp)
         self.move_to(x = (x0+indx*jump_x),y = (y0+indx*jump_y))
         self.move_to(z = (z0+self.clearance))
         
@@ -370,18 +397,22 @@ class CncDriver():
     #if estimated radius was given, search rising edges
     #else search falling edges
 
-    def find_outer_circle_center(self,estimated_radius = None):
+    def find_outer_circle_center(self,estimated_radius = None, datalog = None):
         self.cnc_s.poll()
-        x0 = self.get_actual_position()[0]
-        x_plus = self.find_falling_edge("xplus")[0]
+        x0,y0 = self.get_actual_position()[:2]
+        x_plus,y_tmp, z0 = self.find_falling_edge("xplus")
         self.move_to(x=x0)
         x_minus = self.find_falling_edge("xminus")[0]
-        x_center = x_plus+x_minus/2
+        x_center = (x_plus+x_minus)/2
         self.move_to(x=x_center)
         y_plus  = self.find_falling_edge("yplus")[1]
+        self.move_to(y=y0)
         y_minus = self.find_falling_edge("yminus")[1]
-        y_center = y_plus+y_minus/2 
-        self.move_to(x=y_center)
+        y_center = (y_plus+y_minus)/2 
+        self.move_to(y=y_center)
+
+        if datalog:
+            datalog.logProbe(x_center, y_center, z0)
         
         return x_center,y_center
 
@@ -645,11 +676,20 @@ class CncDriver():
 
         print("Ended")        
     
+    def find_outer_rectangle(self,x_min,xmax,y_min, y_max,z_height, z_safe = None):
+        clearance = 5
+        jump = 2
+        self.move_to(x = x_min - clearance, y = (y_max + y_min)/2, z = z_height - self.probe_tip_diam)
+        x_p1, y_p1 = self.find_rising_edge("xplus")
+        self.move_to(y = (y_p1 + jump))
+        x_p2, y_p2 = self.find_rising_edge("xplus")
+        processor.compensate_linear([x_p1,y_p1], [x_p2,y_p2], self.probe_tip_rad, dir="YX")
+
 
 #Just for testing
 def main():
     c = CncDriver()
-    c.scan_circumference(1)
+    c.find_outer_circle_center()
 
 if __name__ == "__main__":
     main()

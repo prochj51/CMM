@@ -22,11 +22,12 @@ def get_angle(point0,point1):
 #Linear
 #***********
 #compensation on fly for linear edge
-def compensate_linear(point0,point1,comp=1.5,dir = 'XY'):
-    if dir == 'XY':
+def compensate_linear(point0,point1,radius,dir = 'xplus'):
+    
+    if dir == 'yplus' or dir == 'yminus':
         pt0 = point0
         pt1 = point1
-    elif dir == 'YX':
+    elif dir == 'xplus' or dir == 'xminus':
         pt0 = list(reversed(point0))
         pt1 = list(reversed(point1))
     try:
@@ -35,14 +36,31 @@ def compensate_linear(point0,point1,comp=1.5,dir = 'XY'):
         return None
 
     alpha2 = math.pi/2 - alpha
-    phi = math.pi - math.pi/2 - alpha2
-    r = comp/2
-    x_comp = r * math.sin(phi)
-    y_comp = x_comp / math.tan(alpha2)    
+    #print(alpha2)
+    #old
+    # phi = math.pi - math.pi/2 - alpha2
+    # r = comp/2
+    # x_comp = r * math.sin(phi)
+    # y_comp = x_comp / math.tan(alpha2)    
 
-    if dir == 'XY':
+    #new
+    if dir == 'yminus' or dir == 'xminus':
+        sign_y = -1
+    else:
+        sign_y = 1
+
+    if alpha < 0:
+        sign_x = 1
+    else:
+        sign_x  = -1
+
+        
+    x_comp = sign_x * radius * math.cos(alpha2)
+    y_comp = sign_y * radius * math.sin(alpha2)
+
+    if dir == 'yplus' or dir == 'yminus':
         return x_comp,y_comp
-    elif dir == 'YX':
+    elif dir == 'xplus' or dir == 'xminus':
         return y_comp,x_comp
 
 #***************
@@ -137,9 +155,11 @@ def main():
     # ax.scatter(x,y,z)
     # plt.show()
 
-    Z = np.array([0,0,1,1])
-    res = np.gradient(Z,1)
-    print(res)
+    # Z = np.array([0,0,1,1])
+    # res = np.gradient(Z,1)
+    # print(res)
+    print(compensate_linear([10,20],[15,22],1.5,"yplus"))
+
 
 if __name__ == "__main__":
     main()

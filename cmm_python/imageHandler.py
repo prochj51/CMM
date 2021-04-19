@@ -13,7 +13,7 @@ c_label_font = cv2.FONT_HERSHEY_SIMPLEX
 c_label_color = (0, 0, 255)
 c_label_s = 1
 c_label_line_type = cv2.LINE_8
-c_demo_mode = True
+c_demo_mode = False
 
 c_line_color = (0, 200, 0)
 c_path_color = (200, 200, 64)
@@ -287,6 +287,7 @@ def updateImage_to_default():
     updateImage.printHelp = False 
     updateImage.warp_m = None
     updateImage.c_crop_rect = None 
+    updateImage.pause_updates = False
     mouse_sqr_pts_done = False
     
 

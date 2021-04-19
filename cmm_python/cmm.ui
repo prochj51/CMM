@@ -65,6 +65,13 @@ max-height:40px;
            </widget>
           </item>
           <item>
+           <widget class="QPushButton" name="clearPointsButton">
+            <property name="text">
+             <string>Clear selected points</string>
+            </property>
+           </widget>
+          </item>
+          <item>
            <widget class="QFrame" name="horizontalFrame">
             <layout class="QHBoxLayout" name="horizontalLayout_5">
              <item>
@@ -201,13 +208,6 @@ max-height:40px;
            <widget class="QPushButton" name="enterDimensionsButton">
             <property name="text">
              <string>Enter dimensions</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QPushButton" name="clearPointsButton">
-            <property name="text">
-             <string>Clear selected points</string>
             </property>
            </widget>
           </item>

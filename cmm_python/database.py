@@ -7,15 +7,13 @@ class CmmDatalog():
         self.meas_id = 10   
     
     def logMeasurement(self, op_name):
-        self.db.insert_measurement(op_name)
-        self.meas_id = self.db.get_last_meas_id()
-        self.db.last_meas_id = self.meas_id
-        return self.meas_id    
+        self.meas_id = self.db.insert_measurement(op_name)
+        return  self.meas_id    
 
     def logProbe(self,x, y, z, meas_id_ = None):
-        if meas_id_ is not None:
+        if meas_id_:
             meas_id = meas_id_
-        elif self.meas_id is not None :
+        elif self.meas_id:
             meas_id = self.meas_id
         else:
             raise Exception("Measurement id is not set")
@@ -27,10 +25,11 @@ class CmmDb():
         self.db_name = _db_name 
         self.change_status = True     
         self.last_meas_id = 10
+        self.last_op_name = ""
 
     def open(self):
         self.conn = self.create_connection(self.db_name)
-        self.c = self.conn.cursor()
+        self.cursor = self.conn.cursor()
     
     def create_connection(self,db_file):
         """ create a database connection to the SQLite database
@@ -53,37 +52,44 @@ class CmmDb():
     def insert_probed_value(self, meas_id, x, y, z):
         row_tuple = (meas_id,x,y,z)
         print("Inserting", row_tuple)
-        self.c.execute("INSERT INTO PROBED_POINTS (measurement_id,x,y,z) VALUES (?,?,?,?)",row_tuple)
+        self.cursor.execute("INSERT INTO PROBED_POINTS (measurement_id,x,y,z) VALUES (?,?,?,?)",row_tuple)
         self.conn.commit()
         self.change_status = True
     
     def get_probed_values(self, meas_id):
-        self.c.execute("select x, y, z from PROBED_POINTS where measurement_id=?",(meas_id,))
-        rows = self.c.fetchall()
+        self.cursor.execute("select x, y, z from PROBED_POINTS where measurement_id=?",(meas_id,))
+        rows = self.cursor.fetchall()
         # for row in rows:
         #     print(row)
         return rows
 
     def insert_measurement(self, op_name):
-        self.c.execute("INSERT INTO MEASUREMENT (op_name, time_stamp) VALUES (?,datetime('now','localtime'))",(op_name,))
+        self.cursor.execute("INSERT INTO MEASUREMENT (op_name, time_stamp) VALUES (?,datetime('now','localtime'))",(op_name,))
         self.conn.commit()
         self.change_status = True
-    
+        self.last_meas_id = self.cursor.lastrowid
+        self.last_op_name = op_name
+        return self.cursor.lastrowid
+
 
     def get_last_meas_id(self):
-        self.c.execute("select max(id) from MEASUREMENT")
+        self.cursor.execute("select max(id) from MEASUREMENT")
         
-        last_id = self.c.fetchone()
+        last_id = self.cursor.fetchone()
         #print("Last id", last_id[0])
         return int(last_id[0])
 
+    def get_op_name(self, meas_id):
+        self.cursor.execute("select op_name from MEASUREMENT where id=?",(meas_id,))
+        op_name = self.cursor.fetchone()
+        return str(op_name)
 def main():
-    db = CMM_Db()
+    db = CmmDb()
     db.open()
-    
+    db.insert_measurement("Last test")
     #r = db.get_probed_values(10)
-    db.insert_measurement("perpendicularity")
-    print(db.get_last_meas_id()[0])
+    #n = db.get_op_name(3)
+    #print(n)
     db.close()
 
 
