@@ -4,11 +4,15 @@
 # overwritten when you run PNCconf again
 
 loadrt [KINS]KINEMATICS
+#loadrt millkins
+#setp millkins.skew 0.1
 loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS
 loadrt hostmot2
 loadrt hm2_eth board_ip="10.10.10.10" config=" num_encoders=1 num_pwmgens=0 num_stepgens=5 sserial_port_0=00xxxx" 
 setp    hm2_7i96.0.watchdog.timeout_ns 10000000
 loadrt pid names=pid.x,pid.y,pid.z,pid.s
+loadrt and2 count=2
+loadrt not
 
 addf hm2_7i96.0.read          servo-thread
 addf motion-command-handler   servo-thread
@@ -18,16 +22,28 @@ addf pid.y.do-pid-calcs       servo-thread
 addf pid.z.do-pid-calcs       servo-thread
 addf pid.s.do-pid-calcs       servo-thread
 addf hm2_7i96.0.write         servo-thread
-
+addf not.0 					  servo-thread
+addf and2.0					  servo-thread
+addf and2.1					  servo-thread
 # external output signals
 
 
 # external input signals
 
 # --- PROBE-IN ---
-net probe-in     <=  hm2_7i96.0.gpio.002.in_not
-net xlim 		<= hm2_7i96.0.gpio.001.in_not
-net ylim 		<= hm2_7i96.0.gpio.000.in_not
+net xlim 		<= hm2_7i96.0.gpio.000.in_not
+net ylim 		<= hm2_7i96.0.gpio.001.in_not
+net inp1 and2.0.in0 <=  hm2_7i96.0.gpio.002.in_not
+
+net inp2 		and2.0.in1 	<= 		joint.2.homing
+net home-sig 	and2.0.out 	=>  	joint.2.home-sw-in
+
+net inp2 => not.0.in 
+
+net inp1 					=> and2.1.in0 
+net inp4 	and2.1.in1 		<= 	not.0.out
+net in5 	motion.probe-input 	<= 	and2.1.out
+
 
 #*******************
 #  AXIS X JOINT 0
@@ -184,7 +200,6 @@ net z-enable     => hm2_7i96.0.stepgen.01.enable
 
 # ---setup home / limit switch signals---
 
-net probe-in    =>  joint.2.home-sw-in
 net z-neg-limit     =>  joint.2.neg-lim-sw-in
 net z-pos-limit     =>  joint.2.pos-lim-sw-in
 
@@ -224,9 +239,6 @@ net MDI-mode              halui.mode.is-mdi
 net coolant-mist      <=  iocontrol.0.coolant-mist
 net coolant-flood     <=  iocontrol.0.coolant-flood
 
-#  ---probe signal---
-
-net probe-in     =>  motion.probe-input
 
 #  ---motion control signals---
 
