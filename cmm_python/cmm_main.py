@@ -148,12 +148,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.label.setMouseTracking(True)
         self.label.installEventFilter(self)
         self.ui.enterDimensionsButton.clicked.connect(self.process_dimensions)
-        self.ui.moveButton.clicked.connect(self.update_plot)
+        self.ui.moveButton.clicked.connect(self.move)
         self.ui.referenceZ.clicked.connect(self.reference_z)
         self.ui.startButton.clicked.connect(self.start)
         self.ui.clearPointsButton.clicked.connect(self.clear_points)
         self.ui.confirmButton.clicked.connect(self.confirm)
         self.ui.abortButton.clicked.connect(self.abort_action)
+        self.ui.goToHomeButton.clicked.connect(self.go_to_home)
+        self.ui.homeAllButton.clicked.connect(self.home_all)
         self.init_combo_box()
         self.selectedPoints = []
         self.th = Thread(self)
@@ -196,6 +198,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "Find inner hole position" : self.find_position,
             "Find outer hole position" : self.find_position,
             "Find inner rectangle position" : self.find_position,
+            "Find outer cover" : self.find_outer_cover,
             "Scan XY"  : self.scan_xy,
             "Scan circumference"   : self.scan_xy,
             "Circularity"   : self.scan_xy,
@@ -265,15 +268,31 @@ class MainWindow(QtWidgets.QMainWindow):
         x = data[:,0]
         y = data[:,1]
         z = data[:,2]
-        
         self.ui.plotWidget.canvas.axes.clear()
         
         self.ui.plotWidget.plot_scatter(x,y,z,self.plot_id, self.plot_op_name)
         self.ui.plotWidget.canvas.figure.canvas.draw()
         self.ui.plotWidget.canvas.figure.canvas.flush_events()
-        
-        
         self.db.change_status = False
+
+        edgeData = self.db.get_edge_values(self.db.last_meas_id)
+        edgeData = np.array(edgeData)
+        if edgeData.size == 0:
+            return
+        print("Drawing edge")
+        imageHandler.edges = []
+        for edge in edgeData:
+            x0 = edge[0]
+            y0 = edge[1]
+            x1 = edge[2]
+            y1 = edge[3]
+            x0, y0 = self.driver.cnc_to_camera(x0,y0)
+            x1, y1 = self.driver.cnc_to_camera(x1,y1)
+            imageHandler.edges.append([x0,y0,x1,y1])
+            print("Actual_position", imageHandler.actual_position)
+            print("Edge points", [x0,y0,x1,y1])
+
+        
 
     def closeEvent(self, event):
         self.db.close()
@@ -288,15 +307,13 @@ class MainWindow(QtWidgets.QMainWindow):
     # ACTIONS #
     ###########
     def move(self):
-        x = [1, 2, 3*self.counter, 4, 5]
-        y = [1, 2, 3, 4, 5]
-        z = [1, 2, 3, 4, 5]
-        self.ui.plotWidget.canvas.axes.clear()
-        self.ui.plotWidget.plotScatter(x,y,z)
-        self.ui.plotWidget.canvas.figure.canvas.draw()
-        self.ui.plotWidget.canvas.figure.canvas.flush_events()
-        self.counter = self.counter + 1
-
+        datalog = self.create_datalog(self.db, "Cover")
+        self.driver.find_outer_rectangle(10,50,10,50,-20, datalog=datalog)
+    def go_to_home(self):
+        if self.driver.home:
+            self.driver.go_to_home()
+    def home_all(self):
+        self.driver.home_all()
     def reference_z(self):
     # if self.state.value < State.CameraReady.value:
     #     print("Camera not ready")
@@ -324,6 +341,17 @@ class MainWindow(QtWidgets.QMainWindow):
         print("Z height: {}".format(self.z_ref))
         return self.z_ref
 
+    def find_outer_cover(self,func_text):
+        z = self.reference_z()
+        
+        self.ui.instructionLabel.setText("Draw area which include part cover")
+
+        x_min, x_max, y_min, y_max = self.wait_for_mask()
+        datalog = self.create_datalog(self.db, "Cover")
+        try:    
+            self.driver.find_outer_rectangle(x_min,x_max,y_min, y_max,z, datalog=datalog)
+        except AbortException:
+            self.ui.instructionLabel.setText("Program was aborted")
 
     def find_position(self,func_text):
         imageHandler.updateImage.pause_updates = True
@@ -373,37 +401,10 @@ class MainWindow(QtWidgets.QMainWindow):
             
 
     def scan_xy(self, func_text):
-        self.state = State.Draw
+        
         self.ui.instructionLabel.setText("Draw area to scan and hit confirm")
-        
-        while True:
-            
-            mask  = cv2.cvtColor(imageHandler.layers[imageHandler.layer],cv2.COLOR_BGR2GRAY)
-            mask_exists =  np.count_nonzero(mask) != 0
-            
-            if self.confirmed == True:
-                if mask_exists:
-                    break
-                else:
-                    self.ui.instructionLabel.setText("No area selected")
-                    self.confirmed == False
-                
-            self.wait()
-        
+        x_min, x_max, y_min, y_max = self.wait_for_mask()
         datalog = self.create_datalog(self.db, "XY scan")
-        #datalog = None
-
-        ind = np.argwhere(mask == np.amax(mask))
-        y_ind = ind[:,0] 
-        x_ind = ind[:,1]
-        x_pix_min = np.min(x_ind, axis=None)
-        x_pix_max = np.max(x_ind, axis=None)
-        y_pix_min = np.min(y_ind, axis=None)
-        y_pix_max = np.max(y_ind, axis=None)
-        
-        x_min, y_min = self.driver.camera_to_cnc(x_pix_max, y_pix_min) #Watch out, xmax <--> xmin is switched, image is reversed 
-        x_max, y_max = self.driver.camera_to_cnc(x_pix_min, y_pix_max) #Watch out, xmax <--> xmin is switched, image is reversed 
-        print(x_min, x_max, y_min, y_max)
         try:
             self.driver.scan_xy(x_min,x_max,y_min, y_max, datalog=datalog)
         except AbortException:
@@ -422,6 +423,39 @@ class MainWindow(QtWidgets.QMainWindow):
             self.driver.scan_xy_line(pt0,pt1, datalog=datalog)
         except AbortException:
             self.ui.instructionLabel.setText("Program was aborted")
+
+    def wait_for_mask(self):
+        self.state = State.Draw
+        while True:
+            
+            mask  = cv2.cvtColor(imageHandler.layers[imageHandler.layer],cv2.COLOR_BGR2GRAY)
+            mask_exists =  np.count_nonzero(mask) != 0
+            
+            if self.confirmed == True:
+                if mask_exists:
+                    break
+                else:
+                    self.ui.instructionLabel.setText("No area selected")
+                    self.confirmed == False
+                
+            self.wait()
+        
+        
+        #datalog = None
+
+        ind = np.argwhere(mask == np.amax(mask))
+        y_ind = ind[:,0] 
+        x_ind = ind[:,1]
+        x_pix_min = np.min(x_ind, axis=None)
+        x_pix_max = np.max(x_ind, axis=None)
+        y_pix_min = np.min(y_ind, axis=None)
+        y_pix_max = np.max(y_ind, axis=None)
+        
+        x_min, y_min = self.driver.camera_to_cnc(x_pix_max, y_pix_min) #Watch out, xmax <--> xmin is switched, image is reversed 
+        x_max, y_max = self.driver.camera_to_cnc(x_pix_min, y_pix_max) #Watch out, xmax <--> xmin is switched, image is reversed 
+        print(x_min, x_max, y_min, y_max)
+        return x_min, x_max, y_min, y_max
+
 
     def update_cnc(self):
         self.x_act, self.y_act, self.z_act = self.driver.get_actual_position()

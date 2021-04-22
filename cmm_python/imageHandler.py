@@ -8,6 +8,7 @@ from common import next_frame
 from enum import Enum
 import sys
 from PyQt5 import QtCore
+import processor
 
 c_label_font = cv2.FONT_HERSHEY_SIMPLEX
 c_label_color = (0, 0, 255)
@@ -44,6 +45,7 @@ mouse_pts = []
 mouse_moving = False
 mouse_sqr_pts = []
 mouse_sqr_pts_done = False
+edges = []
 
 def line_length(pt1, pt2):
     delta_x = pt2[0] - pt1[0]
@@ -101,7 +103,28 @@ def plate_mask(image):
 
     return mask
 
-def draw_crosshairs(img, pt, off, c, thickness):
+def draw_edge(img, edge, c, t):
+    x0 = edge[0]
+    y0 = edge[1]
+    x1 = edge[2]
+    y1 = edge[3]
+    h, w = img.shape[:2]
+    global actual_position
+    try:
+        k,q  = processor.get_line_coeff([x0,y0], [x1,y1])
+        pt0 = [0,int(round(q))]
+        pt1 = [w, int(round(k*w + q))]
+
+    except ZeroDivisionError:
+        pt0 = [int(round(x0)),0]
+        pt1 = [int(round(x0)),h]
+
+    cv2.line(img, (pt0[0], pt0[1]), (pt1[0], pt1[1]), color = c, thickness=t)
+    pts = [pt0,pt1]
+    
+    draw_selected_points(img, pts)
+
+def draw_crosshairs(img, pt, off, c=(255, 0, 0), thickness = 1):
     cv2.line(img, (pt[0] - off, pt[1]), (pt[0] + off, pt[1]), c, thickness=thickness, lineType=cv2.LINE_AA)
     cv2.line(img, (pt[0], pt[1] - off), (pt[0], pt[1] + off), c, thickness=thickness, lineType=cv2.LINE_AA)
 
@@ -193,7 +216,7 @@ def setOrigin():
 center_x = None, center_y = None, calib_rect_width = None, calib_rect_height = None)
 def updateImage(image0):
     
-    global mouse_pts,mouse_sqr_pts_done, mouse_sqr_pts
+    global mouse_pts,mouse_sqr_pts_done, mouse_sqr_pts, edges
     global  cnc_origin, points_struct, actual_position
     
     alpha = 0.4  # Transparency factor.
@@ -240,6 +263,11 @@ def updateImage(image0):
         draw_selected_points(updateImage.final_pic,cnc_origin,c=(0,255,255), t = 2)
     if points_struct:
         draw_selected_points(updateImage.final_pic,points_struct,c=(255,255,0), t = 2)
+    
+    if edges:
+        for edge in edges:
+            draw_edge(updateImage.final_pic, edge, c=(255,255,0), t = 2)
+    
     if actual_position is not None:
         cv2.circle(updateImage.final_pic,(actual_position[0],actual_position[1]),10,color=red,thickness=3)
 

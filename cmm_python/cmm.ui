@@ -212,6 +212,20 @@ max-height:40px;
            </widget>
           </item>
           <item>
+           <widget class="QPushButton" name="homeAllButton">
+            <property name="text">
+             <string>Home All</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="goToHomeButton">
+            <property name="text">
+             <string>Go to Home</string>
+            </property>
+           </widget>
+          </item>
+          <item>
            <widget class="QPushButton" name="moveButton">
             <property name="text">
              <string>Move</string>

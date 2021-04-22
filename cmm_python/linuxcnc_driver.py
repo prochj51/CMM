@@ -20,7 +20,7 @@ class CncDriver():
         self.cnc_s = linuxcnc.stat()
         self.cnc_c = linuxcnc.command()
         self.cnc_e = linuxcnc.error_channel()
-        self.c_feedrate = 400
+        self.c_feedrate = 700
         self.probe_tip_diam = float(self.inifile.find("TOOLSENSOR", "TIP_DIAMETER")) or  3.0
         self.probe_tip_rad = self.probe_tip_diam/2
         self.z_base = 0
@@ -35,6 +35,9 @@ class CncDriver():
         self.z_hard_max = self.cnc_s.joint[2]["max_position_limit"] 
         self.wait_func = wait_func
         self.aborted = False
+        self.camera_scale_set = False
+        self.home = []
+        self.set_home_positon(0,210,0)
 
     def check_state(self):
         self.cnc_c.state(linuxcnc.STATE_ESTOP_RESET)
@@ -45,6 +48,13 @@ class CncDriver():
         self.cnc_s.poll()
         return not self.cnc_s.estop and self.cnc_s.enabled and (self.cnc_s.homed.count(1) == self.cnc_s.joints) and (self.cnc_s.interp_state == linuxcnc.INTERP_IDLE)
     
+    def set_home_positon(self, x_home, y_home, z_home):
+        self.home = []
+        self.home.append(x_home)
+        self.home.append(y_home)
+        self.home.append(z_home)
+
+
     def set_camera_home(self,x,y,z=20): #370 creality
         self.camera_home = [x,y,z]
         
@@ -77,6 +87,17 @@ class CncDriver():
         self.cnc_c.abort()
         self.cnc_c.wait_complete()
         
+    def go_to_home(self):
+        if self.home:
+            self.move_to(z = self.home[2])
+            self.move_to(x = self.home[0], y = self.home[1])
+    def home_all(self):
+        print("Homing...")
+        self.cnc_c.mode(linuxcnc.MODE_MANUAL)
+        self.cnc_c.wait_complete()
+        self.cnc_c.home(-1)
+        self.cnc_c.wait_complete()
+        print("Homing done")
 
     def append_coords_to_gcode(self,cmd,x=None, y=None, z=None, feedrate=None):
         if x is not None:
@@ -171,7 +192,7 @@ class CncDriver():
             self.execute_gcode("G90")
 
 
-    def probe_to(self,x=None, y=None, z=None, feedrate=400):
+    def probe_to(self,x=None, y=None, z=None, feedrate=600):
         cmd = 'G38.3'
         cmd = self.append_coords_to_gcode(cmd, x = x,y = y, z = z, feedrate=feedrate)
         self.execute_gcode(cmd)    
@@ -212,7 +233,7 @@ class CncDriver():
         self.y0 = y0
         self.xscale = xscale
         self.yscale = yscale
-        
+        self.camera_scale_set = True
         print("Scale was set")
 
 
@@ -258,9 +279,12 @@ class CncDriver():
         self.move_to(x=x0,y=y0)
         self.probe_to(x=x,y=y,z=self.z_hard_min)
 
-    def move_in_camera_z_perspective(self,pix_x,pix_y,z):
-        x,y = self.camera_to_cnc(pix_x,pix_y)
-        
+    def move_in_camera_z_perspective(self,pix_x,pix_y,z, pixels = True):
+        if pixels:
+            x,y = self.camera_to_cnc(pix_x,pix_y)
+        else:
+            x = pix_x
+            y = pix_y
         x0, y0, kx, ky = self.prepare_camera_perspective(x,y)
         z_d = self.z_base - z
         x_g = x0 + kx*z_d       
@@ -429,7 +453,7 @@ class CncDriver():
     def find_inner_rectangle_center(self):
         pt0 = self.find_rising_edge("yplus")[:2]
         x0,y0 = self.get_actual_position()[:2]
-        jump = 2
+        jump = 5
         self.move_to(x = (x0 + jump))
         pt1 = self.find_rising_edge("yplus")[:2]
         phi = processor.get_angle(pt0,pt1)
@@ -676,20 +700,71 @@ class CncDriver():
 
         print("Ended")        
     
-    def find_outer_rectangle(self,x_min,xmax,y_min, y_max,z_height, z_safe = None):
-        clearance = 5
-        jump = 2
-        self.move_to(x = x_min - clearance, y = (y_max + y_min)/2, z = z_height - self.probe_tip_diam)
-        x_p1, y_p1 = self.find_rising_edge("xplus")
-        self.move_to(y = (y_p1 + jump))
-        x_p2, y_p2 = self.find_rising_edge("xplus")
-        processor.compensate_linear([x_p1,y_p1], [x_p2,y_p2], self.probe_tip_rad, dir="YX")
+
+    def find_margin(self, direction, jump = 10):
+        x_p1, y_p1 = self.find_rising_edge(direction)
+        if direction == "xplus" or direction == "xminus":
+            self.move_to(y = (y_p1 + jump))
+        elif direction == "yplus" or direction == "yminus":
+            self.move_to(x = (x_p1 + jump))
+        else:
+            raise Exception("Wrong direction")
+
+        x_p2, y_p2 = self.find_rising_edge(direction)
+        x_comp, y_comp = processor.compensate_linear([x_p1,y_p1], [x_p2,y_p2], self.probe_tip_rad, dir="xplus")
+        
+        x_p1 = x_p1 + x_comp
+        x_p2 = x_p2 + x_comp
+        y_p1 = y_p1 + y_comp
+        y_p2 = y_p2 + y_comp
+        print("Margin found ", x_p1, x_p2, y_p1, y_p2)
+        return [x_p1,y_p1], [x_p2,y_p2]
+        
+
+    def find_outer_rectangle(self,x_min,x_max,y_min, y_max,z_height, z_safe = None,datalog = None):
+        if self.camera_scale_set == False:
+            raise Exception("Camera scale not set")
+        
+        clearance = 10
+        print("Limits",x_min,x_max,y_min, y_max)
+        x_m = x_min - clearance
+        y_m = (y_max + y_min)/2
+        z_m = z_height - self.probe_tip_diam
+        
+        self.move_in_camera_z_perspective(x_m, y_m, z_m, pixels=False)
+        edge_xplus = self.find_margin("xplus")
+        if datalog:
+            datalog.logEdge(edge_xplus[0],edge_xplus[1], z_m)
+
+        x_m = x_max + clearance
+        self.move_in_camera_z_perspective(x_m, y_m, z_m, pixels=False)
+        edge_xminus = self.find_margin("xminus")
+        
+        if datalog:
+            datalog.logEdge(edge_xminus[0],edge_xminus[1], z_m)
+
+        x_m = (x_max + x_min)/2
+        y_m = y_min - clearance
+        self.move_in_camera_z_perspective(x_m, y_m, z_m, pixels=False)
+        edge_yplus = self.find_margin("yplus")
+
+        if datalog:
+            datalog.logEdge(edge_yplus[0], edge_yplus[1], z_m)
+
+        y_m = y_max + clearance
+        self.move_in_camera_z_perspective(x_m, y_m, z_m, pixels=False)
+        edge_yminus = self.find_margin("yminus")
+
+        if datalog:
+            datalog.logEdge(edge_yminus[0], edge_yminus[1], z_m)
+        
 
 
 #Just for testing
 def main():
     c = CncDriver()
-    c.find_outer_circle_center()
+    c.set_camera_scale(503,7,0.517,0.515)
+    c.find_outer_rectangle(10,50,10,50,-20)
 
 if __name__ == "__main__":
     main()

@@ -13,10 +13,16 @@ def reverse(x,y):
     return x, y
     
 
-def get_angle(point0,point1):
-    dx = point1[0] - point0[0]
-    dy = point1[1] - point0[1]
+def get_angle(pt0, pt1):
+    dx = pt1[0] - pt0[0]
+    dy = pt1[1] - pt0[1]
     return math.atan(float(dy)/float(dx))
+
+
+def get_line_coeff(pt0, pt1):
+    k = float(pt1[1] - pt0[1])/float(pt1[0] - pt0[0])    
+    q = pt0[1] - k * pt0[0]
+    return k, q 
 
 #***********
 #Linear
@@ -46,17 +52,13 @@ def compensate_linear(point0,point1,radius,dir = 'xplus'):
     #new
     if dir == 'yminus' or dir == 'xminus':
         sign_y = -1
-    else:
-        sign_y = 1
-
-    if alpha < 0:
         sign_x = 1
     else:
+        sign_y = 1
         sign_x  = -1
-
-        
+  
     x_comp = sign_x * radius * math.cos(alpha2)
-    y_comp = sign_y * radius * math.sin(alpha2)
+    y_comp = sign_y*radius * math.sin(alpha2)
 
     if dir == 'yplus' or dir == 'yminus':
         return x_comp,y_comp
@@ -158,7 +160,7 @@ def main():
     # Z = np.array([0,0,1,1])
     # res = np.gradient(Z,1)
     # print(res)
-    print(compensate_linear([10,20],[15,22],1.5,"yplus"))
+    print(compensate_linear([10,10],[15,12],1.5,"yminus"))
 
 
 if __name__ == "__main__":

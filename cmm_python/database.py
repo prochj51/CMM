@@ -10,15 +10,27 @@ class CmmDatalog():
         self.meas_id = self.db.insert_measurement(op_name)
         return  self.meas_id    
 
-    def logProbe(self,x, y, z, meas_id_ = None):
-        if meas_id_:
-            meas_id = meas_id_
+    def logProbe(self,x, y, z, meas_id = None):
+        if meas_id:
+            m_id = meas_id
         elif self.meas_id:
-            meas_id = self.meas_id
+            m_id = self.meas_id
         else:
             raise Exception("Measurement id is not set")
 
-        self.db.insert_probed_value(meas_id,x,y,z)
+        self.db.insert_probed_value(m_id,x,y,z)
+
+    def logEdge(self, pt0, pt1, z, meas_id = None):
+        if meas_id:
+            m_id = meas_id
+        elif self.meas_id:
+            m_id = self.meas_id
+        else:
+            raise Exception("Measurement id is not set")
+        self.db.insert_probed_value(m_id,pt0[0],pt0[1],z)
+        self.db.insert_probed_value(m_id,pt1[0],pt1[1],z)
+        self.db.insert_edge_value(m_id,pt0,pt1)
+
 
 class CmmDb():
     def __init__(self, _db_name = "cmm.db"):
@@ -56,12 +68,27 @@ class CmmDb():
         self.conn.commit()
         self.change_status = True
     
+    def insert_edge_value(self, meas_id, pt0, pt1):
+        row_tuple = (meas_id,pt0[0],pt0[1],pt1[0],pt1[1])
+        print("Inserting edge", row_tuple)
+        self.cursor.execute("INSERT INTO EDGE_POINTS (measurement_id,x0,y0,x1,y1) VALUES (?,?,?,?,?)",row_tuple)
+        self.conn.commit()
+        print("Changin status")
+        self.change_status = True    
+    
     def get_probed_values(self, meas_id):
         self.cursor.execute("select x, y, z from PROBED_POINTS where measurement_id=?",(meas_id,))
         rows = self.cursor.fetchall()
         # for row in rows:
         #     print(row)
         return rows
+
+    def get_edge_values(self, meas_id):
+        self.cursor.execute("select x0, y0, x1, y1 from EDGE_POINTS where measurement_id=?",(meas_id,))
+        rows = self.cursor.fetchall()
+        # for row in rows:
+        #     print(row)
+        return rows    
 
     def insert_measurement(self, op_name):
         self.cursor.execute("INSERT INTO MEASUREMENT (op_name, time_stamp) VALUES (?,datetime('now','localtime'))",(op_name,))
@@ -86,10 +113,10 @@ class CmmDb():
 def main():
     db = CmmDb()
     db.open()
-    db.insert_measurement("Last test")
-    #r = db.get_probed_values(10)
+    #db.insert_measurement("Last test")
+    ret = db.get_edge_values(10)
     #n = db.get_op_name(3)
-    #print(n)
+    print(ret)
     db.close()
 
 
