@@ -54,8 +54,12 @@ class CncDriver():
         self.home.append(y_home)
         self.home.append(z_home)
 
+    
+    def set_camera_home(self,x,y): 
 
-    def set_camera_home(self,x,y,z=20): #370 creality
+        """Sets camera position in machine coordinates"""
+        #370 creality
+        z = self.z_hard_min + 370
         self.camera_home = [x,y,z]
         
     def is_moving(self):
@@ -75,11 +79,13 @@ class CncDriver():
         pass
 
     def rotate_xy_system(self, angle):
+        """Rotates coordinate system around Z axis"""
         cmd = "G10 L2 P0"    
         cmd += ' R{0:f} '.format(angle)
         self.execute_gcode(cmd)
     
     def isclose(self, a, b, rel_tol=1e-09, abs_tol=0.0):
+        """Float comparison"""
         return abs(a-b) <= max(rel_tol * max(abs(a), abs(b)), abs_tol)
 
     def abort(self):
@@ -91,6 +97,7 @@ class CncDriver():
         if self.home:
             self.move_to(z = self.home[2])
             self.move_to(x = self.home[0], y = self.home[1])
+    
     def home_all(self):
         print("Homing...")
         self.cnc_c.mode(linuxcnc.MODE_MANUAL)
@@ -100,6 +107,9 @@ class CncDriver():
         print("Homing done")
 
     def append_coords_to_gcode(self,cmd,x=None, y=None, z=None, feedrate=None):
+
+        """Adds coordinates to GCode statement"""
+
         if x is not None:
             cmd += 'X{0:f} '.format(x)
         if y is not None:
@@ -115,6 +125,8 @@ class CncDriver():
         return cmd
     
     def execute_gcode(self,cmd): 
+
+        """Adds coordinates to GCode statement"""
         if not self.ok_for_mdi():
             return
         self.cnc_c.mode(linuxcnc.MODE_MDI)
@@ -122,13 +134,14 @@ class CncDriver():
         
 
         self.cnc_c.mdi(cmd)
-        
         self.cnc_s.poll()
+        #wait loop until gcode is not done
+        
         while self.cnc_s.interp_state != linuxcnc.INTERP_IDLE :
             #if self.error_poll() == -1:
                 #return -1
             if self.wait_func:
-                    self.wait_func() #Added so other process is not stalled
+                    self.wait_func() #Added so other process is not stalled (like GUI)
             else:
                 self.cnc_c.wait_complete()
             self.cnc_s.poll()
@@ -136,14 +149,17 @@ class CncDriver():
         self.check_for_abort()
     
     def transform_coordinates(self,x,y,phi):
+        """Transforms coordinates in rotated system"""
         x_new = x / math.cos(phi) + (y-x*math.tan(phi))*math.sin(phi)
         y_new = (y-x*math.tan(phi))*math.cos(phi)
         return x_new, y_new   
 
     def probe_down(self):
+        """Probes to directly zmin"""
         self.probe_to(z=self.z_hard_min)
 
     def recalc_limits(self):
+        """Recals limits in rotated system"""
         self.cnc_s.poll()
         phi_deg = self.cnc_s.rotation_xy
         safety = 1
@@ -208,7 +224,7 @@ class CncDriver():
         x = self.cnc_s.actual_position[0]
         y = self.cnc_s.actual_position[1]
         z = self.cnc_s.actual_position[2]
-
+        #print(x,y)
         if not mach_coords and self.cnc_s.rotation_xy != 0:
             x, y = self.transform_coordinates(x,y,math.radians(self.cnc_s.rotation_xy))
         
@@ -220,8 +236,8 @@ class CncDriver():
         y = self.cnc_s.probed_position[1]
         z = self.cnc_s.probed_position[2]
 
-        if not mach_coords and self.cnc_s.rotation_xy != 0:
-            x, y = self.transform_coordinates(x,y,math.radians(self.cnc_s.rotation_xy))
+        # if not mach_coords and self.cnc_s.rotation_xy != 0:
+        #     x, y = self.transform_coordinates(x,y,math.radians(self.cnc_s.rotation_xy))
         return x,y,z
 
     def probe_tripped(self):
@@ -267,6 +283,7 @@ class CncDriver():
         z_c = self.camera_home[2]
         
         camera_heigth = z_c - self.z_hard_min
+        print("Camera height", camera_heigth)
         z_diff = z_c - self.z_base
         
         kx = (x-x_c)/camera_heigth
@@ -388,15 +405,37 @@ class CncDriver():
         
         return x,y,z0
 
-    def find_center_between_points(self, dir1, dir2, pos):
-        self.find_rising_edge(dir1)
-        probe_max = self.cnc_s.probed_position[pos]
-        self.find_rising_edge(dir2)
-        probe_min = self.cnc_s.probed_position[pos]
-        return (probe_max+probe_min)/2
+    # def find_center_between_points(self, dir1, dir2, pos):
+    #     self.find_rising_edge(dir1)
+    #     probe_max = self.cnc_s.probed_position[pos]
+    #     self.find_rising_edge(dir2)
+    #     probe_min = self.cnc_s.probed_position[pos]
+    #     return (probe_max+probe_min)/2
 
-  
-    def find_inner_circle_center(self, datalog = None):
+    def find_center_between_points(self, pix_point0, pix_point1, z):
+        
+        point0 = self.camera_to_cnc(pix_point0[0],pix_point0[1])
+        point1 = self.camera_to_cnc(pix_point1[0],pix_point1[1])
+        
+        x_tmp = (pix_point0[0] + pix_point1[0])/2 
+        y_tmp = (pix_point0[1] + pix_point1[1])/2
+        self.move_in_camera_z_perspective(x_tmp,y_tmp, z)
+        angle = math.degrees(processor.get_angle(point0,point1))
+        self.rotate_xy_system(angle)
+        if angle > 0:
+            dir_plus = "xplus"
+            dir_minus = "xminus"
+        else:
+            dir_plus = "yplus"
+            dir_minus = "yminus"    
+        x0, y0 = self.find_rising_edge(dir_plus)[:2]
+        x1, y1 = self.find_rising_edge(dir_minus)[:2]
+        
+        self.rotate_xy_system(0)
+        
+
+
+    def find_inner_circle_center(self, comp_radius = None, datalog = None):
         self.cnc_s.poll()
         x0,y0,z0 = self.get_actual_position()
         x_plus = self.find_rising_edge("xplus")[0]
@@ -410,10 +449,13 @@ class CncDriver():
         y_center = (y_plus+y_minus)/2 
         self.move_to(y=y_center)
 
+        radius = None
+        if comp_radius:
+            radius = y_plus + comp_radius - y_center
         if datalog:
             datalog.logProbe(x_center, y_center, z0)
         
-        return x_center,y_center
+        return x_center,y_center, radius
 
 
 
@@ -421,7 +463,7 @@ class CncDriver():
     #if estimated radius was given, search rising edges
     #else search falling edges
 
-    def find_outer_circle_center(self,estimated_radius = None, datalog = None):
+    def find_outer_circle_center(self,comp_radius = None, estimated_radius = None, datalog = None):
         self.cnc_s.poll()
         x0,y0 = self.get_actual_position()[:2]
         x_plus,y_tmp, z0 = self.find_falling_edge("xplus")
@@ -435,10 +477,15 @@ class CncDriver():
         y_center = (y_plus+y_minus)/2 
         self.move_to(y=y_center)
 
+        radius = None
+        if comp_radius:
+            radius = y_plus + comp_radius - y_center
+
+
         if datalog:
             datalog.logProbe(x_center, y_center, z0)
         
-        return x_center,y_center
+        return x_center,y_center, radius
 
         
 
@@ -763,8 +810,7 @@ class CncDriver():
 #Just for testing
 def main():
     c = CncDriver()
-    c.set_camera_scale(503,7,0.517,0.515)
-    c.find_outer_rectangle(10,50,10,50,-20)
+    print(c.recalc_limits())
 
 if __name__ == "__main__":
     main()

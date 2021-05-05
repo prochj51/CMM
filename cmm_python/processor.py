@@ -11,14 +11,34 @@ def reverse(x,y):
     x = y
     y = tmp
     return x, y
-    
+
+def vec_size(vec):
+    return math.sqrt(vec[0]**2 + vec[1]**2) 
+def dot_product(vec_1, vec_2):
+    return vec_1[0]*vec_2[0] + vec_1[1]*vec_2[1]        
 
 def get_angle(pt0, pt1):
     dx = pt1[0] - pt0[0]
     dy = pt1[1] - pt0[1]
     return math.atan(float(dy)/float(dx))
 
-
+def get_absolute_angle(pt0, pt1):
+    dx = pt1[0] - pt0[0]
+    dy = pt1[1] - pt0[1]
+    vec1 = [pt0[0],0]
+    vec2 = [dx,dy]
+    if pt1[1] < pt0[1]:
+        sign = -1
+    else:
+        sign = 1
+    return sign*math.acos(dot_product(vec1,vec2)/(vec_size(vec1) * vec_size(vec2)))
+    
+def get_normal_vector(pt0, pt1):
+    dx = pt1[0] - pt0[0]
+    dy = pt1[1] - pt0[1]
+    n = np.array([dy,-dx])
+    return n/vec_size(n)
+    
 def get_line_coeff(pt0, pt1):
     k = float(pt1[1] - pt0[1])/float(pt1[0] - pt0[0])    
     q = pt0[1] - k * pt0[0]
@@ -65,63 +85,21 @@ def compensate_linear(point0,point1,radius,dir = 'xplus'):
     elif dir == 'xplus' or dir == 'xminus':
         return y_comp,x_comp
 
-#***************
-#Cubic
-#***************
-
-def compensate_xy(x_values, y_values, reverse_list,comp):
-    f_list = []
-    dx = 0.01
-    k = -1
+def compensate_xy_linear(x, y, comp):  
     x_new = []
     y_new = []
-    for i,(x,y,rev) in enumerate(zip(x_list,y_list,reverse_list)):
-        plt.scatter(x,y)
-        if rev:
-            x,y = reverse(x,y)
-
-        f = interp1d(x, y, kind='cubic')
-        f_list.append(f)
+    for indx in range(0,len(x)):
+        next = indx + 1
+        if next < len(x):
+            pt0 = [x[indx], y[indx]]
+            pt1 = [x[next], y[next]]
+        n = get_normal_vector(pt0,pt1)
         
-        for x_i in x:
-            x0 = x_i
-            x1 = x_i + dx
-            y0 = f(x0)
-            try:
-                y1 = f(x1)
-                dy = y1-y0     
-            except ValueError: #when we are out of range
-                dx = -dx
-                continue
-                # x1= x0+dx
-                # y1 = f(x1)
-                # dy = y0-y1
-                
-            dy = 0 if abs(dy) < 0.0001 else dy
-            if reverse:
-                n = np.array([-dy,dx])
-            else:
-                n = np.array([dy,-dx])
+        x_new.append(x[indx] +comp*n[0])
+        y_new.append(y[indx] + comp*n[1])
 
-            n = k*n/math.sqrt(dy**2+dx**2)
-            
-            if rev:
-                #y is real x and vice versa
-                x0, y0 = reverse(x0,y0)
-                n = n[::-1]
+    return x_new, y_new
 
-            x_c = x0+n[0]
-            y_c = y0+n[1]
-            x_new.append(x_c)
-            y_new.append(y_c)
-
-            #plt.plot(x0+n[0], y0+n[1], marker = '.',c='r')
-
-    return x_new, y_new, f_list
-
-#***************
-#Gradient
-#***************
 
 def compensate_xyz(X,Y,Z, comp):
     X_new = np.copy(X)
@@ -160,7 +138,8 @@ def main():
     # Z = np.array([0,0,1,1])
     # res = np.gradient(Z,1)
     # print(res)
-    print(compensate_linear([10,10],[15,12],1.5,"yminus"))
+    #print(compensate_linear([10,10],[15,12],1.5,"yminus"))
+    
 
 
 if __name__ == "__main__":

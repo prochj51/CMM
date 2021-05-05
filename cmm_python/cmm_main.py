@@ -17,8 +17,10 @@ import common
 from database import CmmDb, CmmDatalog
 import time
 import numpy as np
+import processor
 import matplotlib
 matplotlib.use('Qt5Agg')
+
 
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 
@@ -56,13 +58,11 @@ class Thread(QThread):
             
             if True:
                 # https://stackoverflow.com/a/55468544/6622587
-                #rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                #cv2.namedWindow('test draw')
-                #cv2.setMouseCallback('test draw',click_and_crop)
                 if self.key is not 255:
                     self.win.process_key(self.key)
                     self.key = 255
                 
+                #Check if some masks from drawing has been added
                 imageHandler.check_layers(orig_img)
                 
                 if self.win.state == State.CalibrateCamera:
@@ -84,23 +84,6 @@ class Thread(QThread):
                 self.win.state == State.Draw:
                     pix_x, pix_y = self.win.driver.cnc_to_camera(self.win.x_act,self.win.y_act)
                     imageHandler.actual_position = [pix_x, pix_y]
-                # elif  self.win.state == State.CameraReady:
-                #     self.win.state = State.Move #temporary  
-                # 
-                # elif self.win.state == State.Draw:
-                #     pass
-                
-                # elif self.win.state == State.SelectPoints:
-                #     self.win.ui.instructionLabel.setText("Select point for Z reference a hit reference Z")
-                
-                # elif self.win.state == State.Reference_Z:
-                #     self.win.ui.instructionLabel.setText("Select point for Z reference a hit reference Z")
-                    
-
-                # elif self.win.state == State.Move:
-                #     self.win.ui.instructionLabel.setText("Select point for probing")
-                    
-                            
                 
                 final_pic = imageHandler.updateImage(orig_img)
                 # mask = imageHandler.plate_mask(final_pic)
@@ -173,6 +156,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.show()    
 
     def eventFilter(self, source, event):
+        """Filters mouse events """
         t = event.type()
         
         if t == QtCore.QEvent.MouseMove or t== QtCore.QEvent.MouseButtonPress or t== QtCore.QEvent.MouseButtonRelease :
@@ -188,6 +172,7 @@ class MainWindow(QtWidgets.QMainWindow):
         event.accept()
 
     def init_combo_box(self):
+        """Init combo box with actions"""
         for key in self.op_dictionary:
             self.ui.comboBox.addItem(key)    
                    
@@ -199,6 +184,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "Find outer hole position" : self.find_position,
             "Find inner rectangle position" : self.find_position,
             "Find outer cover" : self.find_outer_cover,
+            "Find distance" : self.find_distance,
             "Scan XY"  : self.scan_xy,
             "Scan circumference"   : self.scan_xy,
             "Circularity"   : self.scan_xy,
@@ -217,12 +203,8 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self.state = State.SelectOrigin
         
-        #print(width)
-        #print(height)
-        # print(imageHandler.calib_rect_width)
-        # print(imageHandler.calib_rect_height)
-        # print(scale_x,scale_y)
     def set_camera_scale(self):
+        """Sets camera/cnc scale and origin point"""
         origin = imageHandler.cnc_origin[0]
         scale_x = self.calib_width/imageHandler.updateImage.calib_rect_width
         scale_y = self.calib_height/imageHandler.updateImage.calib_rect_height
@@ -233,6 +215,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.driver.set_camera_home(camera_home_x,camera_home_y)
 
     def create_datalog(self,db, op_name):
+        """Creates datatlog with basic information how to store valuesv"""
         datalog = CmmDatalog(self.db)
         id_m = datalog.logMeasurement(op_name)
         self.plot_id = id_m
@@ -240,6 +223,7 @@ class MainWindow(QtWidgets.QMainWindow):
         return datalog
 
     def clear_points(self):
+        """Clear selected points"""
         imageHandler.points_struct = []
     
     def confirm(self):
@@ -257,7 +241,7 @@ class MainWindow(QtWidgets.QMainWindow):
         loop.exec_()
 
     def update_plot(self):
-        
+        """Loads actual probing values from db and draw values"""
         if self.db.change_status == False:
             return
         data = self.db.get_probed_values(self.db.last_meas_id)
@@ -333,6 +317,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # self.driver.probe_down()
         except AbortException:
             self.ui.instructionLabel.setText("Program was aborted")
+            return None
 
         self.driver.cnc_s.poll()
         self.z_ref = self.driver.cnc_s.probed_position[2]
@@ -352,6 +337,25 @@ class MainWindow(QtWidgets.QMainWindow):
             self.driver.find_outer_rectangle(x_min,x_max,y_min, y_max,z, datalog=datalog)
         except AbortException:
             self.ui.instructionLabel.setText("Program was aborted")
+            return
+
+    def find_distance(self,func_text):
+        z = self.reference_z()
+        datalog = self.create_datalog(self.db, "Distance")
+        self.ui.instructionLabel.setText("Select points")
+        points = imageHandler.points_struct
+        while True:
+            if self.confirmed == True:
+                if len(points) == 2:
+                    break
+                else:
+                    self.ui.instructionLabel.setText("No points selected")
+                    self.confirmed == False
+            self.wait()
+        point0 = points[0]
+        point1 = points[1]
+        self.driver.find_center_between_points(point0, point1, z)
+
 
     def find_position(self,func_text):
         imageHandler.updateImage.pause_updates = True
@@ -409,6 +413,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.driver.scan_xy(x_min,x_max,y_min, y_max, datalog=datalog)
         except AbortException:
             self.ui.instructionLabel.setText("Program was aborted")
+            return
+
 
     def scan_line(self, func_text):
         self.state = State.SelectPoints 
@@ -423,6 +429,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.driver.scan_xy_line(pt0,pt1, datalog=datalog)
         except AbortException:
             self.ui.instructionLabel.setText("Program was aborted")
+            return
 
     def wait_for_mask(self):
         self.state = State.Draw
@@ -464,6 +471,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui.zDro.setText("{:.3f}".format(self.z_act))
 
         self.driver.read_error_channel()
+
+    def process_values(self):
+        data = self.db.get_probed_values(self.db.last_meas_id)
+        data = np.array(data)
+        if data.size == 0:
+            return
+        print("Drawing data")
+        x = data[:,0]
+        y = data[:,1]
+        z = data[:,2]
+
+        #process data
+
 
     def process_key(self,key):    
         if key == 27:
