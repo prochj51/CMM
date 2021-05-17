@@ -32,7 +32,7 @@ def get_absolute_angle(pt0, pt1):
     else:
         sign = 1
     return sign*math.acos(dot_product(vec1,vec2)/(vec_size(vec1) * vec_size(vec2)))
-    
+
 def get_normal_vector(pt0, pt1):
     dx = pt1[0] - pt0[0]
     dy = pt1[1] - pt0[1]
@@ -81,9 +81,9 @@ def compensate_linear(point0,point1,radius,dir = 'xplus'):
     y_comp = sign_y*radius * math.sin(alpha2)
 
     if dir == 'yplus' or dir == 'yminus':
-        return x_comp,y_comp
+        return x_comp,y_comp, alpha
     elif dir == 'xplus' or dir == 'xminus':
-        return y_comp,x_comp
+        return y_comp,x_comp, alpha
 
 def compensate_xy_linear(x, y, comp):  
     x_new = []
@@ -139,6 +139,7 @@ def main():
     # res = np.gradient(Z,1)
     # print(res)
     #print(compensate_linear([10,10],[15,12],1.5,"yminus"))
+    pass
     
 
 

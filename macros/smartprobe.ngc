@@ -32,7 +32,7 @@ F400    (probe speed)
 ;#8=-50 (Z probe)
 (End configuration section)
 
-(LOGOPEN,probe_results.txt)
+(LOGOPEN,scan_results.txt)
 #9=0 #10=0
 G0Z#7
 O1 while [#9 lt #<ycount>]
@@ -51,9 +51,16 @@ O1 while [#9 lt #<ycount>]
             G38.3 x#11 ; G38.3  probe toward workpiece, stop on contact
         O4 endwhile
 
-        G38.2Z#8 ; G38.2 - probe toward workpiece, stop on contact, signal error if failure
-        G38.5 z#7 ;G38.5 probe away from workpiece, stop on loss of contact 
-        (LOG,X#5061 Y#5062 Z#5063)
+        
+        G38.3Z#8 ; G38.2 - probe toward workpiece, stop on contact, signal error if failure
+        O5 if [#5070 eq 0]
+            (LOG,#<_x>,#<_y>,#<_z>)
+        O5 else      
+            G38.5 z#7 ;G38.5 probe away from workpiece, stop on loss of contact 
+            (LOG,#5061,#5062,#5063)
+        O5 endif
+        
+        
         #10=[#10+1]
     O2 endwhile
     G0Z#7

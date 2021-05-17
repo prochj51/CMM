@@ -184,9 +184,10 @@ class MainWindow(QtWidgets.QMainWindow):
             "Find outer hole position" : self.find_position,
             "Find inner rectangle position" : self.find_position,
             "Find outer cover" : self.find_outer_cover,
-            "Find distance" : self.find_distance,
+            "Find inner distance" : self.find_distance,
+            "Find outer distance" : self.find_distance,
             "Scan XY"  : self.scan_xy,
-            "Scan circumference"   : self.scan_xy,
+            "Scan circumference"   : self.scan_circumference,
             "Circularity"   : self.scan_xy,
             "Cylindarity" :  self.scan_xy,
             "Straightness"  : self.scan_line
@@ -276,7 +277,15 @@ class MainWindow(QtWidgets.QMainWindow):
             print("Actual_position", imageHandler.actual_position)
             print("Edge points", [x0,y0,x1,y1])
 
-        
+    def storeProbedValues(self,file, datalog):
+        f = open(file, "r")
+        result = []
+        for x in f:
+            x = x[:-1]  
+            ret = x.split(",")
+            if len(ret) > 1:
+                result.append(ret)
+                datalog.logProbe(ret[0], ret[1], ret[2])   
 
     def closeEvent(self, event):
         self.db.close()
@@ -354,7 +363,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.wait()
         point0 = points[0]
         point1 = points[1]
-        self.driver.find_center_between_points(point0, point1, z)
+        if "inner" in func_text:
+            self.driver.find_inner_distance(point0, point1, z)
+        elif "outer" in func_text:
+            self.driver.find_outer_distance(point0, point1, z)
 
 
     def find_position(self,func_text):
@@ -408,17 +420,20 @@ class MainWindow(QtWidgets.QMainWindow):
         
         self.ui.instructionLabel.setText("Draw area to scan and hit confirm")
         x_min, x_max, y_min, y_max = self.wait_for_mask()
+        imageHandler.updateImage.pause_updates = True
         datalog = self.create_datalog(self.db, "XY scan")
         try:
-            self.driver.scan_xy(x_min,x_max,y_min, y_max, datalog=datalog)
+            self.driver.scan_xy_ocode(x_min,x_max,y_min, y_max, datalog=datalog)
         except AbortException:
             self.ui.instructionLabel.setText("Program was aborted")
-            return
-
-
+            
+        self.storeProbedValues("../scan_results.txt", datalog)
+        return
+        
     def scan_line(self, func_text):
         self.state = State.SelectPoints 
         self.ui.instructionLabel.setText("Select end points")
+        imageHandler.updateImage.pause_updates = True
         datalog = self.create_datalog(self.db, "Line scan")
 
         while len(imageHandler.points_struct) != 2:
@@ -429,7 +444,25 @@ class MainWindow(QtWidgets.QMainWindow):
             self.driver.scan_xy_line(pt0,pt1, datalog=datalog)
         except AbortException:
             self.ui.instructionLabel.setText("Program was aborted")
-            return
+        return
+
+    def scan_circumference(self, func_text):
+        z = self.reference_z()
+        self.ui.instructionLabel.setText("Select start point")
+        datalog = self.create_datalog(self.db, "Circumference")
+        imageHandler.updateImage.pause_updates = True
+        while len(imageHandler.points_struct) != 1:
+            self.wait()
+        pix_x = imageHandler.points_struct[0][0] 
+        pix_y = imageHandler.points_struct[0][1]
+        self.driver.move_in_camera_z_perspective(pix_x, pix_y, z - self.driver.probe_tip_diam)
+        try:    
+            self.driver.scan_circumference_ocode(datalog=datalog)
+        except AbortException:
+            self.ui.instructionLabel.setText("Program was aborted")
+            
+        self.storeProbedValues("../circumference_results.txt", datalog)
+        return
 
     def wait_for_mask(self):
         self.state = State.Draw

@@ -11,9 +11,11 @@ F200
 #<cnt> = 0
 #<incr> = 3
 #<state> = 0 ; 0 1 2 3
-
-#<retractoff> = 1 
+#<x_diff> = 0
+#<y_diff> = 0
+#<retractoff> = 1
 #<dir> = -1 ;-1 = from left, +1 = from right 
+(LOGOPEN,circumference_results.txt)
 o10 if [#<dir> eq 1]
         G38.2 x#<xmin> ;error on fail
         G38.5 x#<xmax>
@@ -24,14 +26,17 @@ o10 elseif [#<dir> eq -1]
     
 o10 endif 
 
-
+#<xstart> = #<_x>
+#<ystart> = #<_y>
+;(debug,Start: #<xstart> #<ystart>)
 O1 while [#<cnt> lt #<cntmax>]
     o100 if [#<state> lt 0]
         #<state> = 3
     o100 elseif [#<state> gt 3]
         #<state> = 0    
     o100 endif    
-
+    
+    
     o102 if [#<state> EQ 0]
         ;probe
         G38.3 x[#<_x> - #<dir>*2*#<incr>] 
@@ -41,6 +46,7 @@ O1 while [#<cnt> lt #<cntmax>]
         o103 else
             ;retract probe
             G38.5 x[#<_x> + #<dir>*5*#<incr>] ;5 can cause problems, watch out 
+            (LOG,#5061,#5062,#5063)
             G0 x[#<_x> + #<dir>*#<retractoff>]
 
             ;move
@@ -61,6 +67,7 @@ O1 while [#<cnt> lt #<cntmax>]
         o106 else
             ;retract
             G38.5 y[#<_y> - #<dir>*5*#<incr>]
+            (LOG,#5061,#5062,#5063)
             G0 y[#<_y> - #<dir>*#<retractoff>]
             
             ;move
@@ -81,6 +88,7 @@ O1 while [#<cnt> lt #<cntmax>]
         o109 else
             ;retract
             G38.5 x[#<_x> - #<dir>*5*#<incr>]
+            (LOG,#5061,#5062,#5063)
             G0 x[#<_x> - #<dir>*#<retractoff>]
 
             ;move
@@ -102,6 +110,7 @@ O1 while [#<cnt> lt #<cntmax>]
         o113 else
         ;retract
             G38.5 y[#<_y> + #<dir>*5*#<incr>]
+            (LOG,#5061,#5062,#5063)
             G0 y[#<_y> + #<dir>*#<retractoff>]
             
             ;move
@@ -117,8 +126,17 @@ O1 while [#<cnt> lt #<cntmax>]
     o102 endif
       
     #<cnt>=[#<cnt>+1]
+    
+    ;check if we are back at start point
+    #<x_diff> = [#<xstart> - #<_x>]
+    #<y_diff> = [#<ystart> - #<_y>]
+    ;(debug,Actual #<_x>,#<_y>,#<cnt>)
+    ;(debug,Diffs #<x_diff>,#<y_diff>,#<cnt>)
+    o120 if [[ABS[#<x_diff>] le #<incr> ] AND [ABS[#<y_diff>] le #<incr>] AND [#<cnt> gt 2]]
+    #<cnt> = [#<cntmax> + 1]        
+    o120 endif
 
 O1 endwhile
-
+(LOGCLOSE)
 o<circumferenceprobe> endsub
 M2

@@ -194,6 +194,15 @@ class CncDriver():
         
         return x_r_min + safety, x_r_max - safety, y_r_min + safety, y_r_max - safety
         
+    def get_limits(self):
+        """Get limits in rotated system"""
+        self.cnc_s.poll()
+        phi_deg = self.cnc_s.rotation_xy
+        safety = 1
+        if self.isclose(phi_deg,0.):
+            return self.x_hard_min + safety, self.x_hard_max - safety, self.y_hard_min + safety, self.y_hard_max - safety
+        else:
+            return -10,10,-10,10
 
     def move_to(self,x=None, y=None, z=None, rel = False, feedrate=None):
         if rel:
@@ -208,12 +217,21 @@ class CncDriver():
             self.execute_gcode("G90")
 
 
-    def probe_to(self,x=None, y=None, z=None, feedrate=600):
-        cmd = 'G38.3'
-        cmd = self.append_coords_to_gcode(cmd, x = x,y = y, z = z, feedrate=feedrate)
-        self.execute_gcode(cmd)    
+    def probe_to(self,x=None, y=None, z=None, rel = False, feedrate=200):
+        if rel:
+            cmd = 'G91 G38.3'
+        else:
+            cmd = 'G38.3'
 
-    def probe_away(self,x=None, y=None, z=None, feedrate=400):
+        cmd = self.append_coords_to_gcode(cmd, x = x,y = y, z = z, feedrate=feedrate)
+        self.execute_gcode(cmd)
+        if rel:
+            self.execute_gcode("G90")
+
+        return self.probe_tripped()    
+
+
+    def probe_away(self,x=None, y=None, z=None, feedrate=200):
         cmd = 'G38.5'
         cmd = self.append_coords_to_gcode(cmd, x = x,y = y, z = z, feedrate=feedrate)
         self.execute_gcode(cmd)
@@ -225,8 +243,8 @@ class CncDriver():
         y = self.cnc_s.actual_position[1]
         z = self.cnc_s.actual_position[2]
         #print(x,y)
-        if not mach_coords and self.cnc_s.rotation_xy != 0:
-            x, y = self.transform_coordinates(x,y,math.radians(self.cnc_s.rotation_xy))
+        # if not mach_coords and self.cnc_s.rotation_xy != 0:
+        #     x, y = self.transform_coordinates(x,y,math.radians(self.cnc_s.rotation_xy))
         
         return x,y,z
 
@@ -344,22 +362,33 @@ class CncDriver():
 
     def find_rising_edge(self,dir):
         self.cnc_s.poll() 
-        x_min, x_max, y_min, y_max = self.recalc_limits()
-        cl = self.clearance
-        if dir == 'xminus': 
-            self.probe_to(x = x_min)
-            clearance_vec = [cl, 0, 0]      
-        elif dir == 'xplus': 
-            self.probe_to(x = x_max)
-            clearance_vec = [-cl, 0, 0]      
-        elif dir == 'yminus':
-            self.probe_to(y = y_min)    
-            clearance_vec = [0, cl, 0]      
-        elif dir == 'yplus':
-            self.probe_to(y = y_max)
-            clearance_vec = [0, -cl, 0]      
+        
+        if not self.isclose(self.cnc_s.rotation_xy,0.0):
+            rel = True
+            cnt = 50
         else:
-            raise Exception("Wrong Input")
+            rel = False
+            cnt = 1
+
+        cl = self.clearance
+        x_min, x_max, y_min, y_max = self.get_limits()
+        for indx in range(0, cnt):
+            if dir == 'xminus': 
+                self.probe_to(x = x_min, rel=rel)
+                clearance_vec = [cl, 0, 0]      
+            elif dir == 'xplus': 
+                self.probe_to(x = x_max, rel=rel)
+                clearance_vec = [-cl, 0, 0]      
+            elif dir == 'yminus':
+                self.probe_to(y = y_min, rel=rel)    
+                clearance_vec = [0, cl, 0]      
+            elif dir == 'yplus':
+                self.probe_to(y = y_max, rel=rel)
+                clearance_vec = [0, -cl, 0]      
+            else:
+                raise Exception("Wrong Input")
+            if self.probe_tripped():
+                break
         dir_opp = self.get_opposite_direction(dir)   
         self.cnc_s.poll()
 
@@ -405,35 +434,59 @@ class CncDriver():
         
         return x,y,z0
 
-    # def find_center_between_points(self, dir1, dir2, pos):
-    #     self.find_rising_edge(dir1)
-    #     probe_max = self.cnc_s.probed_position[pos]
-    #     self.find_rising_edge(dir2)
-    #     probe_min = self.cnc_s.probed_position[pos]
-    #     return (probe_max+probe_min)/2
-
-    def find_center_between_points(self, pix_point0, pix_point1, z):
+    def find_inner_distance(self, pix_point0, pix_point1, z):
         
         point0 = self.camera_to_cnc(pix_point0[0],pix_point0[1])
         point1 = self.camera_to_cnc(pix_point1[0],pix_point1[1])
+        data = [point0,point1]
+        data.sort(key=lambda tup: tup[0])
+        point0 = data[0]
+        point1 = data[1]
         
         x_tmp = (pix_point0[0] + pix_point1[0])/2 
         y_tmp = (pix_point0[1] + pix_point1[1])/2
+    
         self.move_in_camera_z_perspective(x_tmp,y_tmp, z)
         angle = math.degrees(processor.get_angle(point0,point1))
         self.rotate_xy_system(angle)
-        if angle > 0:
-            dir_plus = "xplus"
-            dir_minus = "xminus"
-        else:
-            dir_plus = "yplus"
-            dir_minus = "yminus"    
-        x0, y0 = self.find_rising_edge(dir_plus)[:2]
-        x1, y1 = self.find_rising_edge(dir_minus)[:2]
         
-        self.rotate_xy_system(0)
+        # if angle > 0:
+        #     dir_plus = "xplus"
+        #     dir_minus = "xminus"
+        # else:
+        #     dir_plus = "yplus"
+        #     dir_minus = "yminus" 
+        dir_plus = "xplus"
+        dir_minus = "xminus"       
+        x0, y0, beta = self.find_margin(dir_plus)
+        x1, y1 = self.find_margin(dir_minus)[:2]
         
+        print(beta)
 
+
+        self.rotate_xy_system(0)
+
+    def find_outer_distance(self, pix_point0, pix_point1, z ):
+        safety = 10
+        point0 = self.camera_to_cnc(pix_point0[0],pix_point0[1])
+        point1 = self.camera_to_cnc(pix_point1[0],pix_point1[1])
+        data = [point0,point1]
+        data.sort(key=lambda tup: tup[0])
+        point0 = data[0]
+        point1 = data[1]
+
+        angle = math.degrees(processor.get_angle(point0,point1))
+        self.rotate_xy_system(angle) 
+        print("X, Y, angle", point0[0],point0[1], angle)   
+        x0,y0 = self.transform_coordinates(point0[0],point0[1], math.radians(angle) )
+        print("X, Y, angle", x0, y0, angle) 
+        x1,y1 = self.transform_coordinates(point1[0],point1[1], math.radians(angle) )
+        point0 = [x0 - safety, y0]
+        point1 = [x1 + safety, y1]
+        self.move_in_camera_z_perspective(point0[0], point0[1], z, pixels = False)
+        x0, y0 = self.find_rising_edge("xplus")[:2]
+        self.move_in_camera_z_perspective(point1[0], point1[1], z, pixels = False)
+        x0, y0 = self.find_rising_edge("xminus")[:2]
 
     def find_inner_circle_center(self, comp_radius = None, datalog = None):
         self.cnc_s.poll()
@@ -509,13 +562,14 @@ class CncDriver():
 
         return self.find_inner_circle_center()
 
-    def scan_xy_ocode(self, x_start, x_end, y_start, y_end, step_x = 10, step_y = 10, datalog = None):
-        z_min = self.z_hard_min
+    def scan_xy_ocode(self, x_start, x_end, y_start, y_end, step_x = 5, step_y = 5, datalog = None):
+        z_min = self.z_hard_min 
         z_max = self.z_base
         o_code = "o<smartprobe> call [{}] [{}] [{}] [{}] [{}] [{}] [{}] [{}]" \
         .format(x_start,x_end,y_start,y_end,step_x,step_y, z_max, z_min)
         print(o_code)
         self.execute_gcode(o_code)   
+
 
     def scan_xy_line(self, pt0, pt1, step = 2, datalog = None):
         x0 = pt0[0]
@@ -598,15 +652,19 @@ class CncDriver():
             ind_y = ind_y + 1
             print("Count_y", ind_y)
 
-            
+    def scan_circumference_ocode(self,direction = -1, datalog = None):  
+        o_code = "o<circumferenceprobe> call"
+        self.execute_gcode(o_code)         
+        
     def scan_circumference(self,direction = -1, datalog = None):
         cnt_max = 600
         cnt = 0
         incr = 2
         state = 0 # 0 1 2 3
-        retract = 1
+        retract = 3
         #direction = -1 #1 = from left, +1 = from right
-
+        o_code = "o<circumferenceprobe> call"
+        self.execute_gcode(o_code)
         if direction == -1:
             self.find_rising_edge("xplus")
         elif direction == 1:
@@ -621,10 +679,11 @@ class CncDriver():
                 state = 3
             elif state > 3:
                 state = 0    
-
+            
             if state == 0:
                 print(state)
                 x_m = self.get_actual_position()[0] - direction*2*incr
+                print("Probing to", x_m)
                 self.probe_to(x=x_m)
 
                 # if probe was not tripped, change probe direction
@@ -635,19 +694,25 @@ class CncDriver():
                 else:
                     #retract
                     x_m = self.get_actual_position()[0] + direction*5*incr
+                    print("Probing away", x_m)
                     self.probe_away(x = x_m,feedrate=50)
                     if datalog:
-                        datalog.logProbe(self.get_probed_position())
+                        x_p, y_p, z_p = self.get_probed_position()
+                        print("Probed", x_p)
+                        datalog.logProbe(x_p, y_p, z_p)
                     x_m = self.get_actual_position()[0] + direction*retract
+                    print("Retract", x_m)
                     self.move_to(x = x_m)
                     
                     #move in y
                     y_m = self.get_actual_position()[1] + incr
+                    print("Probing to next", y_m)
                     self.probe_to(y = y_m) 
                     if self.probe_tripped() == 1:
+                        print("Tripnuto")
                         state = state + direction
                         self.probe_away(y = self.y_hard_min)
-                        y_m = self.get_actual_position[1] - retract
+                        y_m = self.get_actual_position()[1] - retract
                         self.move_to(y = y_m)
 
 
@@ -666,7 +731,8 @@ class CncDriver():
                     y_m = self.get_actual_position()[1] - direction*5*incr
                     self.probe_away(y = y_m)
                     if datalog:
-                        datalog.logProbe(self.get_probed_position())
+                        x_p, y_p, z_p = self.get_probed_position()
+                        datalog.logProbe(x_p, y_p, z_p)
                     y_m = self.get_actual_position()[1] - direction*retract
                     self.move_to(y = y_m)
 
@@ -695,7 +761,8 @@ class CncDriver():
                     x_m = self.get_actual_position()[0] - direction*5*incr
                     self.probe_away(x = x_m)
                     if datalog:
-                        datalog.logProbe(self.get_probed_position())
+                        x_p, y_p, z_p = self.get_probed_position()
+                        datalog.logProbe(x_p, y_p, z_p)
                     x_m = self.get_actual_position()[0] - direction*retract
                     self.move_to(x = x_m)
 
@@ -723,7 +790,8 @@ class CncDriver():
                     y_m = self.get_actual_position()[1] + direction*5*incr
                     self.probe_away(y = y_m)
                     if datalog:
-                        datalog.logProbe(self.get_probed_position())
+                        x_p, y_p, z_p = self.get_probed_position()
+                        datalog.logProbe(x_p, y_p, z_p)
                     y_m = self.get_actual_position()[1] + direction*retract
                     self.move_to(y = y_m)
 
@@ -751,21 +819,23 @@ class CncDriver():
     def find_margin(self, direction, jump = 10):
         x_p1, y_p1 = self.find_rising_edge(direction)
         if direction == "xplus" or direction == "xminus":
-            self.move_to(y = (y_p1 + jump))
+            self.move_to(y = jump, rel = True)
         elif direction == "yplus" or direction == "yminus":
-            self.move_to(x = (x_p1 + jump))
+            self.move_to(x = jump, rel = True)
         else:
             raise Exception("Wrong direction")
-
+               
         x_p2, y_p2 = self.find_rising_edge(direction)
-        x_comp, y_comp = processor.compensate_linear([x_p1,y_p1], [x_p2,y_p2], self.probe_tip_rad, dir="xplus")
+        pt1 = [x_p1,y_p1]
+        pt2 = [x_p2,y_p2]
+        x_comp, y_comp, angle = processor.compensate_linear(pt1, pt2, self.probe_tip_rad, direction)
         
         x_p1 = x_p1 + x_comp
         x_p2 = x_p2 + x_comp
         y_p1 = y_p1 + y_comp
         y_p2 = y_p2 + y_comp
         print("Margin found ", x_p1, x_p2, y_p1, y_p2)
-        return [x_p1,y_p1], [x_p2,y_p2]
+        return [x_p1,y_p1], [x_p2,y_p2], angle
         
 
     def find_outer_rectangle(self,x_min,x_max,y_min, y_max,z_height, z_safe = None,datalog = None):
@@ -810,7 +880,7 @@ class CncDriver():
 #Just for testing
 def main():
     c = CncDriver()
-    print(c.recalc_limits())
+    c.find_rising_edge("xplus")
 
 if __name__ == "__main__":
     main()
