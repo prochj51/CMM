@@ -4,7 +4,7 @@ import linuxcnc
 import sys
 import hal
 import math
-import processor
+import Processor
 
 class AbortException(Exception):
     def __init__(self):

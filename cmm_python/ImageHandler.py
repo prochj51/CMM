@@ -8,7 +8,7 @@ from common import next_frame
 from enum import Enum
 import sys
 from PyQt5 import QtCore
-import processor
+import Processor
 
 c_label_font = cv2.FONT_HERSHEY_SIMPLEX
 c_label_color = (0, 0, 255)

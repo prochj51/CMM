@@ -10,14 +10,14 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 from enum import Enum
-import imageHandler
-import linuxcnc_driver 
-from linuxcnc_driver import AbortException
+import ImageHandler
+import CmmDriver 
+from CmmDriver import AbortException
 import common
-from database import CmmDb, CmmDatalog
+from Database import CmmDb, CmmDatalog
 import time
 import numpy as np
-import processor
+import Processor
 import matplotlib
 matplotlib.use('Qt5Agg')
 
